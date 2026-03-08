@@ -117,7 +117,7 @@ function NameGate({ onSave }) {
         <div style={{ textAlign:"center", marginBottom:32 }}>
           <div style={{ fontSize:52, lineHeight:1, marginBottom:12 }}>🎲</div>
           <h1 style={{ fontSize:34, fontWeight:800, color:"#fff", letterSpacing:"-1px", marginBottom:6 }}>
-            Poly<span style={{ color:T.accent, transition:"color .3s ease" }}>frens</span>
+            Poly<span style={{ color:"#ADFF4F" }}>frens</span>
           </h1>
           <p style={{ color:"#5A6478", fontSize:14 }}>Bets just between your friends</p>
         </div>
@@ -470,29 +470,29 @@ export default function App() {
 
   // ── Theme: switches when anon mode is on ──────────────────────────────────
   const T = isAnon ? {
-    accent:   "#C084FC",   // purple
+    accent:   "#C084FC",
     accent2:  "#9333EA",
     accentBg: "rgba(192,132,252,0.12)",
     accentBd: "rgba(192,132,252,0.3)",
-    surface:  T.surface,
+    surface:  "#17101F",
     surfaceB: "#1E1530",
-    border:   T.border,
+    border:   "#2D1F3D",
     border2:  "#3D2A55",
-    bg:       T.bg,
+    bg:       "#0E0812",
     dot:      "#C084FC",
     glow:     "rgba(192,132,252,0.15)",
     tag:      "ANON MODE",
     tagIcon:  "🕵️",
   } : {
-    accent:   T.accent,
+    accent:   "#ADFF4F",
     accent2:  "#7FD420",
     accentBg: "rgba(173,255,79,0.12)",
     accentBd: "rgba(173,255,79,0.3)",
-    surface:  T.surface,
-    surfaceB: T.surfaceB,
-    border:   T.border,
-    border2:  T.border2,
-    bg:       T.bg,
+    surface:  "#161929",
+    surfaceB: "#11131f",
+    border:   "#1E2438",
+    border2:  "#252A3D",
+    bg:       "#0D0F1A",
     dot:      "#22c55e",
     glow:     "rgba(173,255,79,0.1)",
     tag:      null,
