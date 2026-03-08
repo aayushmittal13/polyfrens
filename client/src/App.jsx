@@ -61,32 +61,93 @@ function Toast({ toast }) {
 }
 
 function NameGate({ onSave }) {
+  const [step, setStep] = useState("name");
   const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
   const [shake, setShake] = useState(false);
-  const submit = () => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const submitName = () => {
     if (name.trim().length < 2) { setShake(true); setTimeout(() => setShake(false), 400); return; }
-    onSave(name.trim());
+    setStep("password");
   };
+
+  const submitPassword = async () => {
+    if (!password.trim()) { setShake(true); setTimeout(() => setShake(false), 400); return; }
+    setLoading(true); setError("");
+    try {
+      let ok = false;
+      const r1 = await fetch("/api/auth/creator-login", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ password: password.trim() }) });
+      if (r1.ok) { ok = true; }
+      if (!ok) {
+        const r2 = await fetch("/api/auth/login", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ password: password.trim() }) });
+        if (r2.ok) ok = true;
+      }
+      if (!ok) {
+        setError("Wrong password. Ask your fren for it."); setShake(true); setTimeout(() => setShake(false), 400);
+        setLoading(false); return;
+      }
+      localStorage.setItem("km_gate_pass", "1");
+      onSave(name.trim());
+    } catch { setError("Network error. Try again."); }
+    finally { setLoading(false); }
+  };
+
   return (
     <div style={{ position:"fixed", inset:0, background:"#0D0F1A", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:24, zIndex:200 }}>
       <div style={{ position:"absolute", top:"-20%", right:"-10%", width:320, height:320, borderRadius:"50%", background:"radial-gradient(circle, #ADFF4F22 0%, transparent 70%)", pointerEvents:"none" }} />
       <div style={{ position:"absolute", bottom:"-10%", left:"-10%", width:260, height:260, borderRadius:"50%", background:"radial-gradient(circle, #4FC3F722 0%, transparent 70%)", pointerEvents:"none" }} />
       <div style={{ width:"100%", maxWidth:380, position:"relative" }}>
-        <div style={{ textAlign:"center", marginBottom:40 }}>
-          <div style={{ fontSize:56, lineHeight:1, marginBottom:12 }}>🎲</div>
-          <h1 style={{ fontSize:34, fontWeight:900, color:"#fff", letterSpacing:"-1px", marginBottom:8 }}>
+        <div style={{ textAlign:"center", marginBottom:32 }}>
+          <div style={{ fontSize:52, lineHeight:1, marginBottom:12 }}>🎲</div>
+          <h1 style={{ fontSize:34, fontWeight:900, color:"#fff", letterSpacing:"-1px", marginBottom:6 }}>
             Poly<span style={{ color:"#ADFF4F" }}>frens</span>
           </h1>
-          <p style={{ color:"#5A6478", fontSize:15 }}>Bets just between your friends</p>
+          <p style={{ color:"#5A6478", fontSize:14 }}>Bets just between your friends</p>
         </div>
+
+        <div style={{ display:"flex", justifyContent:"center", gap:6, marginBottom:22 }}>
+          {["name","password"].map((s,i) => (
+            <div key={s} style={{ width:step===s?20:6, height:6, borderRadius:3, background:step===s?"#ADFF4F":i<["name","password"].indexOf(step)?"#ADFF4F66":"#252A3D", transition:"all .25s ease" }} />
+          ))}
+        </div>
+
         <div style={{ background:"#161929", border:"1.5px solid #252A3D", borderRadius:20, padding:24 }}>
-          <label style={{ display:"block", fontSize:11, fontWeight:800, letterSpacing:"0.1em", color:"#ADFF4F", marginBottom:10 }}>WHAT'S YOUR NAME?</label>
-          <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key==="Enter" && submit()} placeholder="e.g. Rahul" className={shake ? "shake" : ""}
-            style={{ width:"100%", background:"#0D0F1A", border:"1.5px solid #252A3D", color:"#fff", borderRadius:12, padding:"14px 16px", fontSize:16, outline:"none", marginBottom:14 }} />
-          <button onClick={submit} style={{ width:"100%", background:"#ADFF4F", color:"#0D0F1A", border:"none", borderRadius:12, padding:"14px 0", fontSize:16, fontWeight:900, cursor:"pointer" }}>
-            Let's Go 🚀
-          </button>
-          <p style={{ textAlign:"center", fontSize:12, color:"#3A4155", marginTop:12 }}>You start with 100 pts to bet with</p>
+          {step === "name" ? (
+            <>
+              <label style={{ display:"block", fontSize:11, fontWeight:800, letterSpacing:"0.1em", color:"#ADFF4F", marginBottom:10 }}>WHAT'S YOUR NAME?</label>
+              <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key==="Enter" && submitName()} placeholder="e.g. Rahul" className={shake ? "shake" : ""}
+                style={{ width:"100%", background:"#0D0F1A", border:"1.5px solid #252A3D", color:"#fff", borderRadius:12, padding:"14px 16px", fontSize:16, outline:"none", marginBottom:14 }} />
+              <button onClick={submitName} style={{ width:"100%", background:"#ADFF4F", color:"#0D0F1A", border:"none", borderRadius:12, padding:"14px 0", fontSize:16, fontWeight:900, cursor:"pointer" }}>
+                Next →
+              </button>
+            </>
+          ) : (
+            <>
+              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:20 }}>
+                <div style={{ width:36, height:36, borderRadius:"50%", background:"linear-gradient(135deg,#ADFF4F,#4FC3F7)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, fontWeight:900, color:"#0D0F1A", flexShrink:0 }}>
+                  {name.charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <p style={{ fontSize:15, fontWeight:800, color:"#fff" }}>Hey, {name}!</p>
+                  <p style={{ fontSize:12, color:"#5A6478" }}>Enter the group password to get in</p>
+                </div>
+              </div>
+              <label style={{ display:"block", fontSize:11, fontWeight:800, letterSpacing:"0.1em", color:"#ADFF4F", marginBottom:10 }}>GROUP PASSWORD</label>
+              <input autoFocus type="password" value={password} onChange={e => { setPassword(e.target.value); setError(""); }} onKeyDown={e => e.key==="Enter" && submitPassword()} placeholder="Ask your fren 🤫" className={shake ? "shake" : ""}
+                style={{ width:"100%", background:"#0D0F1A", border:`1.5px solid ${error?"#FF6B6B":"#252A3D"}`, color:"#fff", borderRadius:12, padding:"14px 16px", fontSize:16, outline:"none", marginBottom:error?8:14 }} />
+              {error && <p style={{ color:"#FF6B6B", fontSize:13, fontWeight:700, marginBottom:14 }}>{error}</p>}
+              <button onClick={submitPassword} disabled={loading}
+                style={{ width:"100%", background:"#ADFF4F", color:"#0D0F1A", border:"none", borderRadius:12, padding:"14px 0", fontSize:16, fontWeight:900, cursor:loading?"not-allowed":"pointer", opacity:loading?0.7:1, display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+                {loading ? <><Spinner color="#0D0F1A" /> Checking...</> : "Let's Go 🚀"}
+              </button>
+              <button onClick={() => { setStep("name"); setError(""); setPassword(""); }}
+                style={{ width:"100%", background:"transparent", border:"none", color:"#3A4155", fontSize:13, fontWeight:600, cursor:"pointer", marginTop:10, padding:"6px 0" }}>
+                ← Change name
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -275,7 +336,11 @@ function SettingsPanel({ settings, adminPassword, showToast, onSaved }) {
 }
 
 export default function App() {
-  const [username, setUsername] = useState(() => localStorage.getItem("km_username") || "");
+  const [username, setUsername] = useState(() => {
+    const saved = localStorage.getItem("km_username");
+    const passed = localStorage.getItem("km_gate_pass");
+    return (saved && passed) ? saved : "";
+  });
   const [balance, setBalance] = useState(null);
   const [events, setEvents] = useState([]);
   const [settings, setSettings] = useState({ min_bet:1, max_bet:100, currency:"pts", starting_balance:100 });
@@ -375,7 +440,7 @@ export default function App() {
   if (!username) return <NameGate onSave={saveUsername} />;
 
   const NAV = ["markets","leaderboard",...(canCreate?["create"]:[]),...(role==="admin"?["settings"]:[])];
-  const ICONS = { markets:"🏪", leaderboard:"🏆", create:"＋", settings:"⚙️" };
+  const ICONS = { markets:"🏪", leaderboard:"🏆", create:"✏️", settings:"⚙️" };
 
   return (
     <div style={{ minHeight:"100vh", background:"#0D0F1A", color:"#fff", paddingBottom:80 }}>
