@@ -42,6 +42,21 @@ function generateDateOptions() {
 
 const PALETTE = ["#ADFF4F","#4FC3F7","#FF6B6B","#C084FC","#FB923C","#34D399","#F472B6","#FBBF24"];
 
+const ANON_ALIASES = [
+  "🦊 Fox","🐯 Tiger","🐼 Panda","🦁 Lion","🐸 Frog","🐺 Wolf","🦄 Unicorn","🐻 Bear",
+  "🦋 Butterfly","🐙 Octopus","🦈 Shark","🦉 Owl","🐬 Dolphin","🦚 Peacock","🦝 Raccoon","🐧 Penguin",
+  "🦜 Parrot","🦩 Flamingo","🐳 Whale","🦦 Otter","🐲 Dragon","🦡 Badger","🐝 Bee","🦌 Deer"
+];
+
+function getAnonAlias() {
+  let alias = localStorage.getItem("km_anon_alias");
+  if (!alias) {
+    alias = ANON_ALIASES[Math.floor(Math.random() * ANON_ALIASES.length)];
+    localStorage.setItem("km_anon_alias", alias);
+  }
+  return alias;
+}
+
 function Spinner({ size = 16, color = "#000" }) {
   return <span style={{ display:"inline-block", width:size, height:size, border:`2.5px solid ${color}33`, borderTopColor:color, borderRadius:"50%", animation:"spin .5s linear infinite", flexShrink:0 }} />;
 }
@@ -205,7 +220,7 @@ function BalancePill({ balance, currency }) {
   );
 }
 
-function CreateForm({ username, password, onCreated, showToast }) {
+function CreateForm({ username, isAnon, password, onCreated, showToast }) {
   const [mtype, setMtype] = useState("binary");
   const BLANK = { title:"", description:"", options:["Yes","No"], deadline:"" };
   const [form, setForm] = useState(BLANK);
@@ -231,7 +246,11 @@ function CreateForm({ username, password, onCreated, showToast }) {
   return (
     <div>
       <h2 style={{ fontSize:24, fontWeight:900, color:"#fff", marginBottom:4, letterSpacing:"-0.5px" }}>Create a Market</h2>
-      <p style={{ color:"#5A6478", fontSize:14, marginBottom:24 }}>Start a prediction. Let chaos begin.</p>
+      <p style={{ color:"#5A6478", fontSize:14, marginBottom:16 }}>Start a prediction. Let chaos begin.</p>
+      <div style={{ display:"inline-flex", alignItems:"center", gap:8, background:isAnon?"rgba(251,146,60,0.08)":"#161929", border:`1px solid ${isAnon?"rgba(251,146,60,0.3)":"#1E2438"}`, borderRadius:8, padding:"7px 14px", marginBottom:20 }}>
+        <span style={{ fontSize:13, fontWeight:700, color:isAnon?"#FB923C":"#5A6478" }}>Creating as: <span style={{ color:isAnon?"#FB923C":"#F0F4FF" }}>{username}</span></span>
+        {isAnon && <span style={{ fontSize:10, fontWeight:800, color:"#FB923C", background:"rgba(251,146,60,0.15)", border:"1px solid rgba(251,146,60,0.3)", borderRadius:4, padding:"2px 6px", letterSpacing:"0.06em" }}>ANON</span>}
+      </div>
       <div style={{ background:"#161929", border:"1.5px solid #252A3D", borderRadius:20, padding:20, display:"flex", flexDirection:"column", gap:20 }}>
         <div>
           <label style={L}>MARKET TYPE</label>
@@ -341,6 +360,10 @@ export default function App() {
     const passed = localStorage.getItem("km_gate_pass");
     return (saved && passed) ? saved : "";
   });
+  const [isAnon, setIsAnon] = useState(() => localStorage.getItem("km_anon") === "1");
+  const anonAlias = getAnonAlias();
+  // The name we actually send to the server for bets/markets
+  const displayName = isAnon ? anonAlias : username;
   const [balance, setBalance] = useState(null);
   const [events, setEvents] = useState([]);
   const [settings, setSettings] = useState({ min_bet:1, max_bet:100, currency:"pts", starting_balance:100 });
@@ -381,6 +404,12 @@ export default function App() {
     return () => clearInterval(t);
   }, [loadData, loadBalance]);
 
+  const toggleAnon = () => {
+    const next = !isAnon;
+    setIsAnon(next);
+    localStorage.setItem("km_anon", next ? "1" : "0");
+  };
+
   const saveUsername = async (name) => {
     localStorage.setItem("km_username", name);
     setUsername(name);
@@ -399,7 +428,7 @@ export default function App() {
     if (!amt || amt < min || amt > max) { showToast(`Bet must be ${min}–${max} ${settings.currency}`, "error"); return; }
     setBetLoading(true);
     try {
-      const { bet, newBalance } = await api(`/api/events/${betModal.eventId}/bets`, { method:"POST", body:{ username, option_index:betModal.option, amount:amt } });
+      const { bet, newBalance } = await api(`/api/events/${betModal.eventId}/bets`, { method:"POST", body:{ username:displayName, option_index:betModal.option, amount:amt } });
       setEvents(prev => prev.map(e => e.id===betModal.eventId ? {...e, bets:[...e.bets, bet]} : e));
       setBalance(newBalance);
       setBetModal(null); setBetAmount("");
@@ -476,6 +505,17 @@ export default function App() {
           </div>
           <div style={{ display:"flex", alignItems:"center", gap:8 }}>
             {balance !== null && <BalancePill balance={balance} currency={settings.currency} />}
+            {/* Anon toggle */}
+            <button onClick={toggleAnon} title={isAnon ? `Posting as ${anonAlias}` : "Go anonymous"} style={{
+              display:"flex", alignItems:"center", gap:5, background:isAnon?"rgba(251,146,60,0.12)":"transparent",
+              border:`1px solid ${isAnon?"rgba(251,146,60,0.4)":"#252A3D"}`, borderRadius:8,
+              padding:"5px 10px", cursor:"pointer", transition:"all .15s", flexShrink:0,
+            }}>
+              <span style={{ fontSize:15, lineHeight:1 }}>{isAnon ? anonAlias.split(" ")[0] : "👤"}</span>
+              <span style={{ fontSize:11, fontWeight:800, color:isAnon?"#FB923C":"#3A4155", display:"none" }} className="anon-label">
+                {isAnon?"ANON":""}
+              </span>
+            </button>
             {role ? (
               <div style={{ display:"flex", gap:6, alignItems:"center" }}>
                 <span style={{ fontSize:10, fontWeight:800, letterSpacing:"0.05em", padding:"4px 9px", borderRadius:50, color:role==="admin"?"#ADFF4F":"#4FC3F7", background:role==="admin"?"#ADFF4F18":"#4FC3F718", border:`1px solid ${role==="admin"?"#ADFF4F44":"#4FC3F744"}` }}>
@@ -569,7 +609,7 @@ export default function App() {
                                 const isWinner = event.resolved && event.winner===i;
                                 const isLoser = event.resolved && event.winner!==null && event.winner!==i;
                                 const optPool = event.bets.filter(b=>b.option===i).reduce((s,b)=>s+b.amount,0);
-                                const myAmt = event.bets.filter(b=>b.user===username&&b.option===i).reduce((s,b)=>s+b.amount,0);
+                                const myAmt = event.bets.filter(b=>(b.user===username||b.user===anonAlias)&&b.option===i).reduce((s,b)=>s+b.amount,0);
                                 const col = PALETTE[i % PALETTE.length];
                                 const multiplier = optPool===0 ? null : (pool/optPool);
                                 const multLabel = optPool===0 ? "∞x" : multiplier>=10 ? `${Math.round(multiplier)}x` : `${multiplier.toFixed(1)}x`;
@@ -671,7 +711,7 @@ export default function App() {
               </div>
             )}
 
-            {view==="create" && canCreate && <CreateForm username={username} password={rolePassword} onCreated={ev => { setEvents(prev=>[ev,...prev]); setView("markets"); }} showToast={showToast} />}
+            {view==="create" && canCreate && <CreateForm username={displayName} isAnon={isAnon} password={rolePassword} onCreated={ev => { setEvents(prev=>[ev,...prev]); setView("markets"); }} showToast={showToast} />}
             {view==="settings" && role==="admin" && <SettingsPanel settings={settings} adminPassword={rolePassword} showToast={showToast} onSaved={s => setSettings(s)} />}
           </>
         )}
@@ -701,6 +741,16 @@ export default function App() {
             <p style={{ fontWeight:900, fontSize:16, color:"#fff", marginBottom:8, lineHeight:1.3 }}>{betModal.eventTitle}</p>
             <div style={{ display:"inline-flex", alignItems:"center", background:`${betModal.color}18`, border:`1.5px solid ${betModal.color}44`, borderRadius:8, padding:"7px 14px", fontSize:14, color:betModal.color, fontWeight:800, marginBottom:18 }}>
               → {betModal.optionLabel}
+            </div>
+            {/* Posting as row */}
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", background:"#0D0F1A", border:`1px solid ${isAnon?"rgba(251,146,60,0.3)":"#1E2438"}`, borderRadius:10, padding:"9px 14px", marginBottom:10 }}>
+              <span style={{ fontSize:12, color:"#5A6478", fontWeight:600 }}>Posting as</span>
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <span style={{ fontSize:13, fontWeight:800, color:isAnon?"#FB923C":"#F0F4FF" }}>{displayName}</span>
+                <button onClick={toggleAnon} style={{ background:isAnon?"rgba(251,146,60,0.12)":"#161929", border:`1px solid ${isAnon?"rgba(251,146,60,0.3)":"#252A3D"}`, color:isAnon?"#FB923C":"#5A6478", borderRadius:6, padding:"3px 8px", fontSize:10, fontWeight:800, cursor:"pointer", letterSpacing:"0.05em" }}>
+                  {isAnon?"ANON ON":"GO ANON"}
+                </button>
+              </div>
             </div>
             {balance !== null && (
               <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", background:"#0D0F1A", border:"1px solid #1E2438", borderRadius:10, padding:"9px 14px", marginBottom:14 }}>
