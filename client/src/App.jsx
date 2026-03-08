@@ -469,7 +469,7 @@ export default function App() {
 
       {/* ── Header ── */}
       <header style={{ position:"sticky", top:0, zIndex:50, background:"rgba(13,15,26,0.95)", backdropFilter:"blur(12px)", borderBottom:"1px solid #1A1F35", padding:"12px 16px" }}>
-        <div style={{ maxWidth:600, margin:"0 auto", display:"flex", alignItems:"center", justifyContent:"space-between", gap:10 }}>
+        <div style={{ maxWidth:900, margin:"0 auto", display:"flex", alignItems:"center", justifyContent:"space-between", gap:10 }}>
           <div style={{ display:"flex", alignItems:"center", gap:8, flexShrink:0 }}>
             <span style={{ fontSize:22, animation:"float 3s ease-in-out infinite", display:"block" }}>🎲</span>
             <span style={{ fontSize:17, fontWeight:900, letterSpacing:"-0.5px" }}>Poly<span style={{ color:"#ADFF4F" }}>frens</span></span>
@@ -495,7 +495,7 @@ export default function App() {
       </header>
 
       {/* ── Main ── */}
-      <main style={{ maxWidth:600, margin:"0 auto", padding:"20px 16px", position:"relative", zIndex:1 }}>
+      <main style={{ maxWidth:900, margin:"0 auto", padding:"20px 16px", position:"relative", zIndex:1 }}>
         {loading ? (
           <div style={{ textAlign:"center", padding:80, color:"#5A6478" }}>
             <div style={{ marginBottom:14 }}><Spinner size={32} color="#ADFF4F" /></div>
@@ -505,19 +505,23 @@ export default function App() {
           <>
             {view==="markets" && (
               <div>
-                <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, marginBottom:20 }}>
+                {/* Stats */}
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginBottom:18 }}>
                   {[["🟢",events.filter(e=>!e.resolved).length,"Live"],["💰",events.reduce((s,e)=>s+getPool(e.bets),0),"Volume"],["✅",events.filter(e=>e.resolved).length,"Done"]].map(([icon,val,label]) => (
-                    <div key={label} style={{ background:"#161929", border:"1.5px solid #1E2438", borderRadius:14, padding:"12px 14px" }}>
-                      <div style={{ fontFamily:"'Space Mono',monospace", fontSize:18, fontWeight:700, color:"#fff" }}>{val}</div>
-                      <div style={{ fontSize:11, fontWeight:700, color:"#3A4155", marginTop:3 }}>{icon} {label}</div>
+                    <div key={label} style={{ background:"#161929", border:"1.5px solid #1E2438", borderRadius:12, padding:"10px 12px" }}>
+                      <div style={{ fontFamily:"'Space Mono',monospace", fontSize:17, fontWeight:700, color:"#fff" }}>{val}</div>
+                      <div style={{ fontSize:11, fontWeight:700, color:"#3A4155", marginTop:2 }}>{icon} {label}</div>
                     </div>
                   ))}
                 </div>
-                <div style={{ display:"flex", gap:6, marginBottom:18 }}>
+
+                {/* Filters */}
+                <div style={{ display:"flex", gap:6, marginBottom:16 }}>
                   {[["live","🔥 Live","#ADFF4F"],["resolved","✅ Done","#C084FC"],["all","All","#94A3B8"]].map(([f,lbl,c]) => (
-                    <button key={f} onClick={() => setFilter(f)} style={{ background:filter===f?`${c}18`:"transparent", border:`1.5px solid ${filter===f?c:"#1E2438"}`, color:filter===f?c:"#3A4155", borderRadius:50, padding:"7px 0", fontSize:13, fontWeight:800, cursor:"pointer", flex:1, transition:"all .15s" }}>{lbl}</button>
+                    <button key={f} onClick={() => setFilter(f)} style={{ background:filter===f?`${c}18`:"transparent", border:`1.5px solid ${filter===f?c:"#1E2438"}`, color:filter===f?c:"#3A4155", borderRadius:50, padding:"6px 0", fontSize:13, fontWeight:800, cursor:"pointer", flex:1, transition:"all .15s" }}>{lbl}</button>
                   ))}
                 </div>
+
                 {filteredEvents.length===0 ? (
                   <div style={{ textAlign:"center", padding:"60px 0" }}>
                     <div style={{ fontSize:48, marginBottom:12 }}>📭</div>
@@ -525,111 +529,106 @@ export default function App() {
                     <p style={{ color:"#3A4155", fontSize:13 }}>{canCreate?"Create one from the + tab":"Ask a creator or admin to start one"}</p>
                   </div>
                 ) : (
-                  <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(280px, 1fr))", gap:10 }}>
                     {filteredEvents.map((event, ei) => {
                       const odds = getOdds(event.bets, event.options.length);
                       const pool = getPool(event.bets);
                       const expired = new Date(event.deadline) < new Date();
                       const canBet = !event.resolved && !expired;
                       const accent = PALETTE[ei % PALETTE.length];
+                      // Top 2 options for preview
+                      const previewOpts = event.options.slice(0, 3);
+
                       return (
-                        <div key={event.id} style={{ background:"#161929", borderRadius:18, border:`1.5px solid ${canBet?accent+"33":"#1E2438"}`, overflow:"hidden", boxShadow:canBet?`0 2px 20px ${accent}12`:"none" }}>
-                          {canBet && <div style={{ height:3, background:`linear-gradient(90deg,${accent}99,transparent)` }} />}
-                          <div style={{ padding:"16px 16px 14px" }}>
-                            <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:10, flexWrap:"wrap" }}>
-                              {canBet && (
-                                <span style={{ display:"inline-flex", alignItems:"center", gap:5, background:"#22c55e1A", border:"1px solid #22c55e33", borderRadius:50, padding:"3px 10px", fontSize:11, color:"#22c55e", fontWeight:800 }}>
-                                  <span style={{ width:6, height:6, borderRadius:"50%", background:"#22c55e", animation:"pulse 1.5s infinite", flexShrink:0 }} />
-                                  LIVE · {deadlineLabel(event.deadline)}
-                                </span>
-                              )}
-                              {event.resolved && <span style={{ background:"#C084FC1A", border:"1px solid #C084FC33", borderRadius:50, padding:"3px 10px", fontSize:11, color:"#C084FC", fontWeight:800 }}>✅ SETTLED</span>}
-                              {expired && !event.resolved && <span style={{ background:"#1E2438", borderRadius:50, padding:"3px 10px", fontSize:11, color:"#3A4155", fontWeight:700 }}>⏰ CLOSED</span>}
-                              <span style={{ fontSize:11, color:"#2A3048", fontWeight:600 }}>by {event.creator}</span>
+                        <div key={event.id} style={{ background:"#161929", borderRadius:16, border:`1.5px solid ${canBet?accent+"33":"#1E2438"}`, overflow:"hidden", display:"flex", flexDirection:"column", cursor:"default" }}>
+                          {/* Accent bar */}
+                          {canBet && <div style={{ height:3, background:`linear-gradient(90deg,${accent}bb,transparent)`, flexShrink:0 }} />}
+
+                          <div style={{ padding:"14px 14px 12px", flex:1, display:"flex", flexDirection:"column", gap:10 }}>
+                            {/* Status row */}
+                            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:6 }}>
+                              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                                {canBet && (
+                                  <span style={{ display:"inline-flex", alignItems:"center", gap:4, background:"#22c55e18", border:"1px solid #22c55e33", borderRadius:50, padding:"2px 8px", fontSize:10, color:"#22c55e", fontWeight:800, whiteSpace:"nowrap" }}>
+                                    <span style={{ width:5, height:5, borderRadius:"50%", background:"#22c55e", animation:"pulse 1.5s infinite", flexShrink:0 }} />
+                                    {deadlineLabel(event.deadline)}
+                                  </span>
+                                )}
+                                {event.resolved && <span style={{ background:"#C084FC18", border:"1px solid #C084FC33", borderRadius:50, padding:"2px 8px", fontSize:10, color:"#C084FC", fontWeight:800 }}>✅ SETTLED</span>}
+                                {expired && !event.resolved && <span style={{ background:"#1E2438", borderRadius:50, padding:"2px 8px", fontSize:10, color:"#3A4155", fontWeight:700 }}>⏰ CLOSED</span>}
+                              </div>
+                              <span style={{ fontSize:10, color:"#2A3048", fontWeight:600, flexShrink:0 }}>by {event.creator}</span>
                             </div>
-                            <p style={{ fontSize:16, fontWeight:800, lineHeight:1.35, color:"#F0F4FF", marginBottom:event.description?6:12 }}>{event.title}</p>
-                            {event.description && <p style={{ fontSize:13, color:"#5A6478", marginBottom:12 }}>{event.description}</p>}
-                            <div style={{ display:"inline-flex", alignItems:"center", gap:6, background:"#0D0F1A", border:"1px solid #1E2438", borderRadius:8, padding:"5px 12px", marginBottom:14 }}>
-                              <span style={{ fontFamily:"'Space Mono',monospace", fontSize:14, fontWeight:700, color:accent }}>{pool.toLocaleString()}</span>
-                              <span style={{ fontSize:12, color:"#3A4155" }}>{settings.currency} · {event.bets.length} bets</span>
-                            </div>
-                            <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                              {event.options.map((opt,i) => {
+
+                            {/* Question */}
+                            <p style={{ fontSize:14, fontWeight:800, lineHeight:1.4, color:"#F0F4FF", display:"-webkit-box", WebkitLineClamp:3, WebkitBoxOrient:"vertical", overflow:"hidden" }}>{event.title}</p>
+
+                            {/* Options — compact rows */}
+                            <div style={{ display:"flex", flexDirection:"column", gap:5, flex:1 }}>
+                              {previewOpts.map((opt,i) => {
                                 const isWinner = event.resolved && event.winner===i;
                                 const isLoser = event.resolved && event.winner!==null && event.winner!==i;
                                 const optPool = event.bets.filter(b=>b.option===i).reduce((s,b)=>s+b.amount,0);
                                 const myAmt = event.bets.filter(b=>b.user===username&&b.option===i).reduce((s,b)=>s+b.amount,0);
                                 const col = PALETTE[i % PALETTE.length];
-                                // Payout multiplier: if you bet 1pt on this option, how much do you get back?
-                                // multiplier = totalPool / optionPool (or show "∞" if no bets on this option yet)
-                                const multiplier = optPool === 0 ? null : (pool / optPool);
-                                const multLabel = optPool === 0 ? "∞x" : multiplier >= 10 ? `${Math.round(multiplier)}x` : `${multiplier.toFixed(2)}x`;
-                                const isHot = multiplier !== null && multiplier >= 3; // high reward
+                                const multiplier = optPool===0 ? null : (pool/optPool);
+                                const multLabel = optPool===0 ? "∞x" : multiplier>=10 ? `${Math.round(multiplier)}x` : `${multiplier.toFixed(1)}x`;
+                                const isHot = multiplier!==null && multiplier>=3;
+
                                 return (
-                                  <div key={i} style={{ background:isWinner?"#ADFF4F0C":"#0D0F1A", border:`1.5px solid ${isWinner?"#ADFF4F44":"#1E2438"}`, borderRadius:12, padding:"11px 12px", opacity:isLoser?0.3:1 }}>
-                                    <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-                                      <span style={{ fontFamily:"'Space Mono',monospace", fontSize:16, fontWeight:700, color:isWinner?"#ADFF4F":col, minWidth:44, flexShrink:0 }}>{odds[i]}%</span>
-                                      <div style={{ flex:1, minWidth:0 }}>
-                                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginBottom:6 }}>
-                                          <span style={{ fontSize:14, fontWeight:700, color:isWinner?"#ADFF4F":"#E2E8F0", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                                            {isWinner && "✓ "}{opt}
-                                          </span>
-                                          <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
-                                            {!event.resolved && (
-                                              <span style={{
-                                                fontFamily:"'Space Mono',monospace", fontSize:12, fontWeight:700,
-                                                color: isHot ? "#FB923C" : "#5A6478",
-                                                background: isHot ? "#FB923C18" : "transparent",
-                                                border: isHot ? "1px solid #FB923C44" : "none",
-                                                borderRadius:6, padding: isHot ? "2px 7px" : "0",
-                                              }}>
-                                                {multLabel}
-                                              </span>
-                                            )}
-                                            <span style={{ fontSize:11, fontFamily:"'Space Mono',monospace", color:"#3A4155" }}>
-                                              {optPool}{myAmt>0&&<span style={{ color:"#4FC3F7" }}> ·{myAmt}↑</span>}
-                                            </span>
-                                          </div>
-                                        </div>
-                                        <div style={{ height:4, background:"#1E2438", borderRadius:2, overflow:"hidden" }}>
-                                          <div style={{ height:"100%", width:`${odds[i]}%`, background:isWinner?`linear-gradient(90deg,#ADFF4F,#7FD420)`:`linear-gradient(90deg,${col}99,${col}44)`, borderRadius:2, transition:"width .5s ease", boxShadow:`0 0 6px ${col}55` }} />
+                                  <div key={i} style={{ background:isWinner?"#ADFF4F0A":"#0D0F1A", border:`1px solid ${isWinner?"#ADFF4F33":"#1a1f35"}`, borderRadius:9, padding:"7px 10px", opacity:isLoser?0.3:1, display:"flex", alignItems:"center", gap:8 }}>
+                                    {/* % */}
+                                    <span style={{ fontFamily:"'Space Mono',monospace", fontSize:13, fontWeight:700, color:isWinner?"#ADFF4F":col, minWidth:36, flexShrink:0 }}>{odds[i]}%</span>
+                                    {/* Label + bar */}
+                                    <div style={{ flex:1, minWidth:0 }}>
+                                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:4, marginBottom:4 }}>
+                                        <span style={{ fontSize:12, fontWeight:700, color:isWinner?"#ADFF4F":"#CBD5E1", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                                          {isWinner&&"✓ "}{opt}
+                                        </span>
+                                        <div style={{ display:"flex", alignItems:"center", gap:4, flexShrink:0 }}>
+                                          {!event.resolved && <span style={{ fontFamily:"'Space Mono',monospace", fontSize:10, fontWeight:700, color:isHot?"#FB923C":"#3A4155", background:isHot?"#FB923C18":"transparent", border:isHot?"1px solid #FB923C44":"none", borderRadius:4, padding:isHot?"1px 5px":"0" }}>{multLabel}</span>}
+                                          {myAmt>0 && <span style={{ fontSize:10, color:"#4FC3F7", fontWeight:700 }}>↑{myAmt}</span>}
                                         </div>
                                       </div>
-                                      {canBet && (
-                                        <button className="bp"
-                                          onClick={() => { setBetModal({ eventId:event.id, option:i, optionLabel:opt, eventTitle:event.title, color:col, pool, optPool }); setBetAmount(""); }}
-                                          style={{ background:`${col}22`, color:col, border:`1.5px solid ${col}55`, borderRadius:8, padding:"8px 14px", fontSize:13, fontWeight:800, cursor:"pointer", flexShrink:0 }}>
-                                          Bet
-                                        </button>
-                                      )}
+                                      <div style={{ height:3, background:"#1E2438", borderRadius:2, overflow:"hidden" }}>
+                                        <div style={{ height:"100%", width:`${odds[i]}%`, background:isWinner?`linear-gradient(90deg,#ADFF4F,#7FD420)`:`linear-gradient(90deg,${col}99,${col}44)`, borderRadius:2, transition:"width .5s ease" }} />
+                                      </div>
                                     </div>
+                                    {/* Bet button */}
+                                    {canBet && (
+                                      <button className="bp"
+                                        onClick={() => { setBetModal({ eventId:event.id, option:i, optionLabel:opt, eventTitle:event.title, color:col, pool, optPool }); setBetAmount(""); }}
+                                        style={{ background:`${col}22`, color:col, border:`1px solid ${col}44`, borderRadius:6, padding:"5px 10px", fontSize:12, fontWeight:800, cursor:"pointer", flexShrink:0, whiteSpace:"nowrap" }}>
+                                        Bet
+                                      </button>
+                                    )}
                                   </div>
                                 );
                               })}
+                              {event.options.length > 3 && (
+                                <p style={{ fontSize:11, color:"#3A4155", fontWeight:600, paddingLeft:4 }}>+{event.options.length-3} more options</p>
+                              )}
                             </div>
-                            {role==="admin" && !event.resolved && (
-                              <div style={{ marginTop:12, paddingTop:12, borderTop:"1px solid #1E2438", display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-                                <span style={{ fontSize:11, color:"#3A4155", fontWeight:800 }}>RESOLVE:</span>
-                                {event.options.map((opt,i) => (
-                                  <button key={i} onClick={() => setResolveModal({ eventId:event.id, option:i, optionLabel:opt, eventTitle:event.title })}
-                                    style={{ background:"#C084FC18", border:"1px solid #C084FC44", color:"#C084FC", borderRadius:8, padding:"5px 12px", fontSize:12, cursor:"pointer", fontWeight:800 }}>
-                                    {opt}
-                                  </button>
-                                ))}
+
+                            {/* Footer row */}
+                            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", paddingTop:6, borderTop:"1px solid #1a1f35" }}>
+                              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                                <span style={{ fontFamily:"'Space Mono',monospace", fontSize:12, fontWeight:700, color:accent }}>{pool}</span>
+                                <span style={{ fontSize:11, color:"#3A4155" }}>{settings.currency} · {event.bets.length} bets</span>
                               </div>
-                            )}
-                            {event.bets.length>0 && (
-                              <div style={{ marginTop:12, paddingTop:12, borderTop:"1px solid #1A1F35" }}>
-                                <p style={{ fontSize:10, fontWeight:800, color:"#252A3D", letterSpacing:"0.08em", marginBottom:7 }}>RECENT BETS</p>
-                                <div style={{ display:"flex", flexWrap:"wrap", gap:5 }}>
-                                  {[...event.bets].reverse().slice(0,6).map((b,idx) => (
-                                    <span key={idx} style={{ fontSize:12, background:"#0D0F1A", border:`1px solid ${b.user===username?"#4FC3F744":"#1E2438"}`, borderRadius:50, padding:"3px 10px", color:b.user===username?"#4FC3F7":"#3A4155", fontWeight:600 }}>
-                                      {b.user} · {b.amount}
-                                    </span>
+                              {/* Admin resolve */}
+                              {role==="admin" && !event.resolved && (
+                                <div style={{ display:"flex", alignItems:"center", gap:5 }}>
+                                  <span style={{ fontSize:10, color:"#3A4155", fontWeight:700 }}>Resolve:</span>
+                                  {event.options.slice(0,3).map((opt,i) => (
+                                    <button key={i} onClick={() => setResolveModal({ eventId:event.id, option:i, optionLabel:opt, eventTitle:event.title })}
+                                      style={{ background:"#C084FC18", border:"1px solid #C084FC33", color:"#C084FC", borderRadius:5, padding:"3px 7px", fontSize:10, cursor:"pointer", fontWeight:800 }}>
+                                      {opt.length>6?opt.slice(0,6)+"…":opt}
+                                    </button>
                                   ))}
                                 </div>
-                              </div>
-                            )}
+                              )}
+                            </div>
                           </div>
                         </div>
                       );
