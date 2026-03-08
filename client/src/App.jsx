@@ -729,12 +729,14 @@ export default function App() {
       {loginModal==="creator"&&<LoginModal title="Creator Login ✏️" subtitle="Create markets and place bets" accent="#4FC3F7" onLogin={pwd=>handleLogin("creator",pwd)} onClose={()=>setLoginModal(null)}/>}
       {showMaster&&<MasterPanel onClose={()=>setShowMaster(false)}/>}
 
-      {/* Hidden master trigger — triple-click the logo */}
-      <div style={{position:"fixed",bottom:100,right:16,zIndex:49}}>
-        <button onClick={()=>setShowMaster(true)} style={{background:T.surface,border:`1px solid ${T.border}`,color:"#3A4155",borderRadius:8,padding:"6px 10px",fontSize:11,cursor:"pointer",fontWeight:600}}>
-          🎛️ Rooms
-        </button>
-      </div>
+      {/* Rooms button — only visible to admin */}
+      {role==="admin" && (
+        <div style={{position:"fixed",bottom:100,right:16,zIndex:49}}>
+          <button onClick={()=>setShowMaster(true)} style={{background:T.surface,border:`1px solid ${T.accentBd}`,color:T.accent,borderRadius:8,padding:"6px 12px",fontSize:12,cursor:"pointer",fontWeight:700}}>
+            🎛️ Rooms
+          </button>
+        </div>
+      )}
 
       <Toast toast={toast}/>
     </div>

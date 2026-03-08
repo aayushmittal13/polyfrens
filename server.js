@@ -59,6 +59,18 @@ async function initDB() {
       created_at   TIMESTAMPTZ DEFAULT NOW()
     );
   `);
+  // Seed a default room if none exist
+  const existing = await pool.query("SELECT id FROM rooms LIMIT 1");
+  if (existing.rows.length === 0) {
+    const defaultCode = "POLYFRENS";
+    await pool.query(
+      `INSERT INTO rooms (name, code, code_hash, admin_hash, creator_hash)
+       VALUES ($1,$2,$3,$4,$5) ON CONFLICT (code) DO NOTHING`,
+      ["Polyfrens HQ", defaultCode, bcrypt.hashSync(defaultCode, 10),
+       bcrypt.hashSync("admin123", 10), bcrypt.hashSync("create123", 10)]
+    );
+    console.log("🏠 Default room created — code: POLYFRENS, admin: admin123");
+  }
   console.log("✅ Database ready");
 }
 
