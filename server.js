@@ -16,20 +16,76 @@ const pool = new Pool({
 const MASTER_PASSWORD = process.env.MASTER_PASSWORD || "Khel Mandli";
 
 async function initDB() {
+  // ── Step 1: Create rooms table if missing ──────────────────────────────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS rooms (
-      id        SERIAL PRIMARY KEY,
-      name      TEXT NOT NULL,
-      code      TEXT UNIQUE NOT NULL,
-      code_hash TEXT NOT NULL,
-      admin_hash    TEXT NOT NULL,
-      creator_hash  TEXT NOT NULL,
-      min_bet       INTEGER DEFAULT 1,
-      max_bet       INTEGER DEFAULT 100,
-      currency      TEXT DEFAULT 'pts',
+      id               SERIAL PRIMARY KEY,
+      name             TEXT NOT NULL,
+      code             TEXT UNIQUE NOT NULL,
+      code_hash        TEXT NOT NULL,
+      admin_hash       TEXT NOT NULL,
+      creator_hash     TEXT NOT NULL,
+      min_bet          INTEGER DEFAULT 1,
+      max_bet          INTEGER DEFAULT 100,
+      currency         TEXT DEFAULT 'pts',
       starting_balance INTEGER DEFAULT 100,
-      created_at TIMESTAMPTZ DEFAULT NOW()
+      created_at       TIMESTAMPTZ DEFAULT NOW()
     );
+  `);
+
+  // ── Step 2: Seed default room if none exists ───────────────────────────
+  const roomCheck = await pool.query("SELECT id FROM rooms LIMIT 1");
+  let defaultRoomId;
+  if (roomCheck.rows.length === 0) {
+    const defaultCode = "POLYFRENS";
+    // Pull settings from old settings table if it exists
+    let adminPwd = "admin123", creatorPwd = "create123", minBet = 1, maxBet = 100, currency = "pts", startBal = 100;
+    try {
+      const oldSettings = await pool.query("SELECT key, value FROM settings");
+      const s = {};
+      oldSettings.rows.forEach(r => s[r.key] = r.value);
+      if (s.password_hash)         adminPwd   = s.password_hash;   // already hashed
+      if (s.creator_password_hash) creatorPwd = s.creator_password_hash;
+      if (s.min_bet)         minBet   = parseInt(s.min_bet);
+      if (s.max_bet)         maxBet   = parseInt(s.max_bet);
+      if (s.currency)        currency = s.currency;
+      if (s.starting_balance) startBal = parseInt(s.starting_balance);
+    } catch(_) {}
+
+    // If passwords came from old table they're already bcrypt hashes — detect by $2 prefix
+    const aHash = adminPwd.startsWith("$2")   ? adminPwd   : bcrypt.hashSync(adminPwd, 10);
+    const cHash = creatorPwd.startsWith("$2") ? creatorPwd : bcrypt.hashSync(creatorPwd, 10);
+
+    const r = await pool.query(
+      `INSERT INTO rooms (name, code, code_hash, admin_hash, creator_hash, min_bet, max_bet, currency, starting_balance)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+      ["Polyfrens HQ", defaultCode, bcrypt.hashSync(defaultCode, 10), aHash, cHash, minBet, maxBet, currency, startBal]
+    );
+    defaultRoomId = r.rows[0].id;
+    console.log("🏠 Default room created — code: POLYFRENS");
+  } else {
+    defaultRoomId = roomCheck.rows[0].id;
+  }
+
+  // ── Step 3: Migrate old tables to room-aware schema ────────────────────
+
+  // users: add room_id column if missing, migrate orphan rows
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS id SERIAL`).catch(()=>{});
+  await pool.query(`UPDATE users SET room_id = $1 WHERE room_id IS NULL`, [defaultRoomId]);
+  // Add unique constraint if not exists
+  try {
+    await pool.query(`ALTER TABLE users ADD CONSTRAINT users_room_username UNIQUE (room_id, username)`);
+  } catch(_) {} // already exists
+
+  // events: add room_id column if missing, migrate orphan rows
+  await pool.query(`ALTER TABLE events ADD COLUMN IF NOT EXISTS room_id INTEGER REFERENCES rooms(id) ON DELETE CASCADE`);
+  await pool.query(`UPDATE events SET room_id = $1 WHERE room_id IS NULL`, [defaultRoomId]);
+
+  // bets: no room_id needed (scoped via event_id → events.room_id)
+
+  // ── Step 4: Create tables fresh if they don't exist at all ─────────────
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       id       SERIAL PRIMARY KEY,
       room_id  INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
@@ -59,18 +115,7 @@ async function initDB() {
       created_at   TIMESTAMPTZ DEFAULT NOW()
     );
   `);
-  // Seed a default room if none exist
-  const existing = await pool.query("SELECT id FROM rooms LIMIT 1");
-  if (existing.rows.length === 0) {
-    const defaultCode = "POLYFRENS";
-    await pool.query(
-      `INSERT INTO rooms (name, code, code_hash, admin_hash, creator_hash)
-       VALUES ($1,$2,$3,$4,$5) ON CONFLICT (code) DO NOTHING`,
-      ["Polyfrens HQ", defaultCode, bcrypt.hashSync(defaultCode, 10),
-       bcrypt.hashSync("admin123", 10), bcrypt.hashSync("create123", 10)]
-    );
-    console.log("🏠 Default room created — code: POLYFRENS, admin: admin123");
-  }
+
   console.log("✅ Database ready");
 }
 
