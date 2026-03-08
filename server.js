@@ -13,12 +13,18 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
 });
 
-// ── Init DB ───────────────────────────────────────────────────────────────────
+const STARTING_BALANCE = 100;
+
 async function initDB() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS users (
+      username TEXT PRIMARY KEY,
+      balance INTEGER NOT NULL DEFAULT 100,
+      created_at TIMESTAMPTZ DEFAULT NOW()
     );
     CREATE TABLE IF NOT EXISTS events (
       id SERIAL PRIMARY KEY,
@@ -45,9 +51,10 @@ async function initDB() {
     INSERT INTO settings (key, value) VALUES
       ('password_hash', $1),
       ('creator_password_hash', $2),
-      ('min_bet', '50'),
-      ('max_bet', '1000'),
-      ('currency', 'pts')
+      ('min_bet', '1'),
+      ('max_bet', '100'),
+      ('currency', 'pts'),
+      ('starting_balance', '100')
     ON CONFLICT (key) DO NOTHING
   `, [bcrypt.hashSync("Khel Mandli", 10), bcrypt.hashSync("create123", 10)]);
 
@@ -57,7 +64,7 @@ async function initDB() {
 // ── Auth ──────────────────────────────────────────────────────────────────────
 app.post("/api/auth/login", async (req, res) => {
   const { password } = req.body;
-  const result = await pool.query("SELECT value FROM settings WHERE key = 'password_hash'");
+  const result = await pool.query("SELECT value FROM settings WHERE key='password_hash'");
   const valid = bcrypt.compareSync(password, result.rows[0]?.value);
   if (valid) res.json({ success: true });
   else res.status(401).json({ error: "Wrong password" });
@@ -65,10 +72,39 @@ app.post("/api/auth/login", async (req, res) => {
 
 app.post("/api/auth/creator-login", async (req, res) => {
   const { password } = req.body;
-  const result = await pool.query("SELECT value FROM settings WHERE key = 'creator_password_hash'");
+  const result = await pool.query("SELECT value FROM settings WHERE key='creator_password_hash'");
   const valid = bcrypt.compareSync(password, result.rows[0]?.value);
   if (valid) res.json({ success: true });
   else res.status(401).json({ error: "Wrong password" });
+});
+
+// ── Users / Balances ──────────────────────────────────────────────────────────
+// Register or get user
+app.post("/api/users/register", async (req, res) => {
+  const { username } = req.body;
+  if (!username || username.trim().length < 2) return res.status(400).json({ error: "Invalid name" });
+
+  const startRow = await pool.query("SELECT value FROM settings WHERE key='starting_balance'");
+  const startBal = parseInt(startRow.rows[0]?.value || STARTING_BALANCE);
+
+  const result = await pool.query(
+    "INSERT INTO users (username, balance) VALUES ($1, $2) ON CONFLICT (username) DO UPDATE SET username=EXCLUDED.username RETURNING *",
+    [username.trim(), startBal]
+  );
+  res.json(result.rows[0]);
+});
+
+app.get("/api/users/:username/balance", async (req, res) => {
+  const { username } = req.params;
+  const startRow = await pool.query("SELECT value FROM settings WHERE key='starting_balance'");
+  const startBal = parseInt(startRow.rows[0]?.value || STARTING_BALANCE);
+
+  // upsert in case they haven't registered yet
+  const result = await pool.query(
+    "INSERT INTO users (username, balance) VALUES ($1, $2) ON CONFLICT (username) DO UPDATE SET username=EXCLUDED.username RETURNING *",
+    [username, startBal]
+  );
+  res.json({ balance: result.rows[0].balance });
 });
 
 // ── Settings ──────────────────────────────────────────────────────────────────
@@ -80,23 +116,18 @@ app.get("/api/settings", async (req, res) => {
 });
 
 app.post("/api/settings", async (req, res) => {
-  const { password, min_bet, max_bet, currency, new_password, new_creator_password } = req.body;
+  const { password, min_bet, max_bet, currency, starting_balance, new_password, new_creator_password } = req.body;
+  const hashRow = await pool.query("SELECT value FROM settings WHERE key='password_hash'");
+  if (!bcrypt.compareSync(password, hashRow.rows[0]?.value)) return res.status(401).json({ error: "Unauthorized" });
 
-  const hashRow = await pool.query("SELECT value FROM settings WHERE key = 'password_hash'");
-  const valid = bcrypt.compareSync(password, hashRow.rows[0]?.value);
-  if (!valid) return res.status(401).json({ error: "Unauthorized" });
-
-  for (const [key, value] of Object.entries({ min_bet, max_bet, currency })) {
-    if (value !== undefined) {
+  for (const [key, value] of Object.entries({ min_bet, max_bet, currency, starting_balance })) {
+    if (value !== undefined)
       await pool.query("INSERT INTO settings (key,value) VALUES ($1,$2) ON CONFLICT (key) DO UPDATE SET value=$2", [key, String(value)]);
-    }
   }
-  if (new_password) {
+  if (new_password)
     await pool.query("UPDATE settings SET value=$1 WHERE key='password_hash'", [bcrypt.hashSync(new_password, 10)]);
-  }
-  if (new_creator_password) {
+  if (new_creator_password)
     await pool.query("INSERT INTO settings (key,value) VALUES ('creator_password_hash',$1) ON CONFLICT (key) DO UPDATE SET value=$1", [bcrypt.hashSync(new_creator_password, 10)]);
-  }
 
   res.json({ success: true });
 });
@@ -116,8 +147,6 @@ app.get("/api/events", async (req, res) => {
 
 app.post("/api/events", async (req, res) => {
   const { title, description, creator, options, deadline, password } = req.body;
-
-  // Accept either admin or creator password
   const [adminRow, creatorRow] = await Promise.all([
     pool.query("SELECT value FROM settings WHERE key='password_hash'"),
     pool.query("SELECT value FROM settings WHERE key='creator_password_hash'"),
@@ -136,10 +165,23 @@ app.post("/api/events", async (req, res) => {
 app.post("/api/events/:id/resolve", async (req, res) => {
   const { winner, password } = req.body;
   const { id } = req.params;
-
   const hashRow = await pool.query("SELECT value FROM settings WHERE key='password_hash'");
-  const valid = bcrypt.compareSync(password, hashRow.rows[0]?.value);
-  if (!valid) return res.status(401).json({ error: "Unauthorized" });
+  if (!bcrypt.compareSync(password, hashRow.rows[0]?.value)) return res.status(401).json({ error: "Unauthorized" });
+
+  // Get all bets for this event
+  const betsResult = await pool.query("SELECT * FROM bets WHERE event_id=$1", [id]);
+  const bets = betsResult.rows;
+  const totalPool = bets.reduce((s, b) => s + b.amount, 0);
+  const winBets = bets.filter(b => b.option_index === winner);
+  const winPool = winBets.reduce((s, b) => s + b.amount, 0);
+
+  // Pay out winners
+  if (winPool > 0) {
+    for (const b of winBets) {
+      const payout = Math.round((b.amount / winPool) * totalPool);
+      await pool.query("UPDATE users SET balance = balance + $1 WHERE username = $2", [payout, b.username]);
+    }
+  }
 
   await pool.query("UPDATE events SET resolved=TRUE, winner=$1 WHERE id=$2", [winner, id]);
   res.json({ success: true });
@@ -150,30 +192,57 @@ app.post("/api/events/:id/bets", async (req, res) => {
   const { username, option_index, amount } = req.body;
   const { id } = req.params;
 
-  const [minRow, maxRow] = await Promise.all([
+  const [minRow, maxRow, startRow] = await Promise.all([
     pool.query("SELECT value FROM settings WHERE key='min_bet'"),
     pool.query("SELECT value FROM settings WHERE key='max_bet'"),
+    pool.query("SELECT value FROM settings WHERE key='starting_balance'"),
   ]);
-  const min = parseInt(minRow.rows[0]?.value || 50);
-  const max = parseInt(maxRow.rows[0]?.value || 1000);
-  if (amount < min || amount > max) return res.status(400).json({ error: `Bet must be between ${min} and ${max}` });
+  const min = parseInt(minRow.rows[0]?.value || 1);
+  const max = parseInt(maxRow.rows[0]?.value || 100);
+  const startBal = parseInt(startRow.rows[0]?.value || STARTING_BALANCE);
+
+  if (amount < min || amount > max) return res.status(400).json({ error: `Bet must be ${min}–${max}` });
+
+  // Get or create user
+  const userResult = await pool.query(
+    "INSERT INTO users (username, balance) VALUES ($1, $2) ON CONFLICT (username) DO UPDATE SET username=EXCLUDED.username RETURNING *",
+    [username.trim(), startBal]
+  );
+  const user = userResult.rows[0];
+  if (user.balance < amount) return res.status(400).json({ error: `Not enough pts (you have ${user.balance})` });
 
   const eventRow = await pool.query("SELECT * FROM events WHERE id=$1", [id]);
   const event = eventRow.rows[0];
   if (!event) return res.status(404).json({ error: "Event not found" });
-  if (event.resolved) return res.status(400).json({ error: "Event already resolved" });
+  if (event.resolved) return res.status(400).json({ error: "Already resolved" });
   if (new Date(event.deadline) < new Date()) return res.status(400).json({ error: "Deadline passed" });
+
+  // Deduct balance
+  await pool.query("UPDATE users SET balance = balance - $1 WHERE username = $2", [amount, username.trim()]);
 
   const result = await pool.query(
     "INSERT INTO bets (event_id, username, option_index, amount) VALUES ($1,$2,$3,$4) RETURNING *",
     [id, username.trim(), option_index, amount]
   );
-  res.json({ id: result.rows[0].id, user: result.rows[0].username, option: result.rows[0].option_index, amount: result.rows[0].amount, time: result.rows[0].created_at });
+  const newBalance = user.balance - amount;
+  res.json({
+    bet: { id: result.rows[0].id, user: result.rows[0].username, option: result.rows[0].option_index, amount: result.rows[0].amount, time: result.rows[0].created_at },
+    newBalance,
+  });
 });
 
-// ── Serve React ───────────────────────────────────────────────────────────────
+// ── Wipe all data (admin only) ────────────────────────────────────────────────
+app.post("/api/admin/wipe", async (req, res) => {
+  const { password } = req.body;
+  const hashRow = await pool.query("SELECT value FROM settings WHERE key='password_hash'");
+  if (!bcrypt.compareSync(password, hashRow.rows[0]?.value)) return res.status(401).json({ error: "Unauthorized" });
+  await pool.query("DELETE FROM bets");
+  await pool.query("DELETE FROM events");
+  await pool.query("DELETE FROM users");
+  res.json({ success: true });
+});
+
 app.get("*", (req, res) => res.sendFile(path.join(__dirname, "client/dist/index.html")));
 
-// ── Start ─────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
-initDB().then(() => app.listen(PORT, () => console.log(`🎲 Khel Mandli on port ${PORT}`))).catch(err => { console.error("DB init failed:", err); process.exit(1); });
+initDB().then(() => app.listen(PORT, () => console.log(`🎲 Khel Mandli on port ${PORT}`))).catch(err => { console.error(err); process.exit(1); });
