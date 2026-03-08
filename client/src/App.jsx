@@ -42,10 +42,10 @@ function Spinner({size=16,color="#000"}){return <span style={{display:"inline-bl
 function Toast({toast}){if(!toast)return null;return(<div style={{position:"fixed",bottom:90,left:"50%",transform:"translateX(-50%)",background:toast.type==="error"?"#FF6B6B":"#ADFF4F",color:"#0D0F1A",padding:"10px 20px",borderRadius:50,fontSize:14,fontWeight:700,zIndex:9999,boxShadow:toast.type==="error"?"0 4px 20px #FF6B6B55":"0 4px 20px #ADFF4F55",animation:"fadeUp .2s ease",whiteSpace:"nowrap"}}>{toast.msg}</div>);}
 
 // ── Onboarding: name → room code ─────────────────────────────────────────────
-function OnboardingGate({onDone}) {
-  const [step, setStep]   = useState("name");
+function OnboardingGate({onDone, prefillCode}) {
+  const [step, setStep]   = useState(prefillCode ? "code" : "name");
   const [name, setName]   = useState("");
-  const [code, setCode]   = useState("");
+  const [code, setCode]   = useState(prefillCode||"");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [shake, setShake] = useState(false);
@@ -323,6 +323,11 @@ function SettingsPanel({settings,adminPassword,showToast,onSaved}){
 
 // ── MAIN APP ──────────────────────────────────────────────────────────────────
 export default function App() {
+  // Parse share URL params
+  const urlParams = new URLSearchParams(window.location.search);
+  const sharedRoomCode = urlParams.get("room");
+  const sharedMarketId = urlParams.get("market") ? Number(urlParams.get("market")) : null;
+
   const savedUser = localStorage.getItem("km_username");
   const savedRoom = (() => { try { return JSON.parse(localStorage.getItem("km_room")); } catch { return null; } })();
 
@@ -343,6 +348,8 @@ export default function App() {
   const [betAmount, setBetAmount] = useState("");
   const [betLoading, setBetLoading] = useState(false);
   const [resolveModal, setResolveModal] = useState(null);
+  const [sharedMarketOpen, setSharedMarketOpen] = useState(null);
+  const [shareModal, setShareModal] = useState(null);
   const [isAnon, setIsAnon] = useState(()=>localStorage.getItem("km_anon")==="1");
   const anonAlias = getAnonAlias();
   const displayName = isAnon ? anonAlias : username;
@@ -380,6 +387,18 @@ export default function App() {
     const t=setInterval(()=>{loadData();loadBalance();},15000);
     return()=>clearInterval(t);
   },[loadData,loadBalance]);
+
+  // Deep-link: open shared market once events load
+  useEffect(()=>{
+    if(sharedMarketId && events.length > 0) {
+      const ev = events.find(e => e.id === sharedMarketId);
+      if(ev && !ev.resolved) {
+        setSharedMarketOpen(sharedMarketId);
+        // Clean URL without reload
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+    }
+  },[events, sharedMarketId]);
 
   const handleOnboard = async (name, roomData) => {
     setUsername(name); setRoom(roomData); setSettings(roomData);
@@ -437,7 +456,7 @@ export default function App() {
   // Can resolve if: admin, OR this user created the market
   const canResolve = (event) => isAdmin || event.creator === username || event.creator === anonAlias;
 
-  if(!username||!room) return <OnboardingGate onDone={handleOnboard}/>;
+  if(!username||!room) return <OnboardingGate onDone={handleOnboard} prefillCode={sharedRoomCode}/>;
 
   const NAV = ["markets","leaderboard","create",...(isAdmin?["settings"]:[])] ;
   const ICONS = {markets:"🏪",leaderboard:"🏆",create:"✏️",settings:"⚙️"};
@@ -474,7 +493,7 @@ export default function App() {
             <span style={{fontSize:22,animation:"float 3s ease-in-out infinite",display:"block",flexShrink:0}}>🎲</span>
             <div style={{minWidth:0}}>
               <span style={{fontSize:17,fontWeight:800,letterSpacing:"-0.5px"}}>Poly<span style={{color:T.accent,transition:"color .3s"}}> frens</span></span>
-              <span style={{fontSize:11,color:"#3A4155",marginLeft:8,fontFamily:"'JetBrains Mono',monospace",letterSpacing:"0.06em",display:"inline-block",maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",verticalAlign:"middle"}}>{room.name}</span>
+              <span style={{fontSize:12,color:"#7A8A9A",marginLeft:6,fontFamily:"'JetBrains Mono',monospace",letterSpacing:"0.04em",display:"inline-block",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",verticalAlign:"middle",background:"#1E2438",border:"1px solid #252A3D",borderRadius:6,padding:"2px 8px"}}>{room.name}</span>
             </div>
           </div>
 
@@ -561,7 +580,7 @@ export default function App() {
                                 {event.resolved&&<span style={{background:"#C084FC18",border:"1px solid #C084FC33",borderRadius:50,padding:"2px 8px",fontSize:11,color:"#C084FC",fontWeight:600}}>✅ Settled</span>}
                                 {expired&&!event.resolved&&<span style={{background:T.border,borderRadius:50,padding:"2px 8px",fontSize:11,color:"#5A6478",fontWeight:500}}>⏰ Closed</span>}
                               </div>
-                              <span style={{fontSize:12,color:"#4A5568",fontWeight:400,flexShrink:0}}>by {event.creator}</span>
+                              <span style={{fontSize:12,color:"#8A9BB0",fontWeight:500,flexShrink:0}}>by {event.creator}</span>
                             </div>
                             <p style={{fontSize:14,fontWeight:600,lineHeight:1.5,color:"#E8EDF5",display:"-webkit-box",WebkitLineClamp:3,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{event.title}</p>
                             <div style={{display:"flex",flexDirection:"column",gap:5,flex:1}}>
@@ -600,7 +619,11 @@ export default function App() {
                                 <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12,fontWeight:600,color:accent}}>{pool}</span>
                                 <span style={{fontSize:12,color:"#5A6478"}}>{settings.currency} · {event.bets.length} bets</span>
                               </div>
-                              {canResolve(event)&&!event.resolved&&(
+                              <button onClick={()=>setShareModal({event})}
+                style={{background:"transparent",border:"none",color:"#3A4155",cursor:"pointer",padding:"2px 4px",fontSize:16,lineHeight:1,transition:"color .15s"}}
+                onMouseOver={e=>e.target.style.color="#94A3B8"} onMouseOut={e=>e.target.style.color="#3A4155"}
+                title="Share market">🔗</button>
+              {canResolve(event)&&!event.resolved&&(
                                 <div style={{display:"flex",alignItems:"center",gap:5}}>
                                   <span style={{fontSize:10,color:"#4A5568",fontWeight:600}}>Resolve:</span>
                                   {event.options.slice(0,3).map((opt,i)=>(<button key={i} onClick={()=>setResolveModal({eventId:event.id,option:i,optionLabel:opt,eventTitle:event.title})} style={{background:"#C084FC18",border:"1px solid #C084FC33",color:"#C084FC",borderRadius:5,padding:"3px 7px",fontSize:10,cursor:"pointer",fontWeight:700}}>{opt.length>6?opt.slice(0,6)+"…":opt}</button>))}
@@ -724,6 +747,56 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* ── Share modal ── */}
+      {shareModal&&(()=>{
+        const url=`${window.location.origin}${window.location.pathname}?room=${room.code}&market=${shareModal.event.id}`;
+        const pool=getPool(shareModal.event.bets);
+        const odds=getOdds(shareModal.event.bets, shareModal.event.options.length);
+        const whatsappText=encodeURIComponent(`🎲 *${shareModal.event.title}*
+
+Place your bets on Polyfrens!
+${url}`);
+        const twitterText=encodeURIComponent(`🎲 ${shareModal.event.title} — place your bets! ${url}`);
+        return(
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.82)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:100,backdropFilter:"blur(8px)"}} onClick={()=>setShareModal(null)}>
+            <div style={{background:T.surface,border:"1.5px solid #252A3D",borderRadius:"20px 20px 0 0",padding:24,width:"100%",maxWidth:500,paddingBottom:"max(24px,env(safe-area-inset-bottom))"}} onClick={e=>e.stopPropagation()}>
+              <div style={{width:40,height:4,background:T.border2,borderRadius:2,margin:"0 auto 20px"}}/>
+              <p style={{fontSize:11,fontWeight:700,letterSpacing:"0.06em",color:T.accent,marginBottom:8}}>SHARE MARKET</p>
+              {/* Market preview */}
+              <div style={{background:T.bg,border:`1.5px solid ${T.border}`,borderRadius:12,padding:"14px 16px",marginBottom:18}}>
+                <p style={{fontWeight:700,fontSize:15,color:"#fff",marginBottom:10,lineHeight:1.4}}>{shareModal.event.title}</p>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+                  {shareModal.event.options.map((opt,i)=>(
+                    <span key={i} style={{fontSize:12,fontWeight:600,color:PALETTE[i%PALETTE.length],background:`${PALETTE[i%PALETTE.length]}18`,border:`1px solid ${PALETTE[i%PALETTE.length]}33`,borderRadius:6,padding:"3px 9px"}}>
+                      {opt} {odds[i]}%
+                    </span>
+                  ))}
+                </div>
+                <p style={{fontSize:12,color:"#5A6478"}}>{pool} {settings.currency} · {shareModal.event.bets.length} bets · by {shareModal.event.creator}</p>
+              </div>
+              {/* URL row */}
+              <div style={{display:"flex",gap:8,marginBottom:16}}>
+                <div style={{flex:1,background:T.bg,border:`1.5px solid ${T.border}`,borderRadius:10,padding:"10px 14px",fontSize:12,color:"#5A6478",fontFamily:"'JetBrains Mono',monospace",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{url}</div>
+                <button onClick={()=>navigator.clipboard?.writeText(url).then(()=>showToast("Link copied! 🔗"))}
+                  style={{background:T.accentBg,border:`1.5px solid ${T.accentBd}`,color:T.accent,borderRadius:10,padding:"10px 16px",fontSize:13,fontWeight:700,cursor:"pointer",flexShrink:0}}>Copy</button>
+              </div>
+              {/* Share buttons */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+                <a href={`https://wa.me/?text=${whatsappText}`} target="_blank" rel="noopener noreferrer"
+                  style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:"#25D36618",border:"1px solid #25D36644",color:"#25D366",borderRadius:12,padding:"13px 0",fontSize:14,fontWeight:700,textDecoration:"none"}}>
+                  <span style={{fontSize:18}}>💬</span> WhatsApp
+                </a>
+                <a href={`https://twitter.com/intent/tweet?text=${twitterText}`} target="_blank" rel="noopener noreferrer"
+                  style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:"#1DA1F218",border:"1px solid #1DA1F244",color:"#1DA1F2",borderRadius:12,padding:"13px 0",fontSize:14,fontWeight:700,textDecoration:"none"}}>
+                  <span style={{fontSize:18}}>🐦</span> Twitter
+                </a>
+              </div>
+              <button onClick={()=>setShareModal(null)} style={{width:"100%",background:"transparent",border:`1.5px solid ${T.border2}`,color:"#5A6478",borderRadius:12,padding:"12px 0",fontSize:14,fontWeight:600,cursor:"pointer"}}>Close</button>
+            </div>
+          </div>
+        );
+      })()}
 
       {showAdminLogin&&<LoginModal title="Admin Login 👑" subtitle="Global access across all rooms" accent="#ADFF4F" onLogin={handleAdminLogin} onClose={()=>setShowAdminLogin(false)}/>}
       {showAdminPanel&&<AdminPanel adminPassword={adminPassword} onClose={()=>setShowAdminPanel(false)} showToast={showToast}/>}
