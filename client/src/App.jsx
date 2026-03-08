@@ -110,7 +110,7 @@ function OnboardingGate({onDone, prefillCode}) {
 }
 
 // ── Admin Panel (global) ──────────────────────────────────────────────────────
-function AdminPanel({adminPassword, onClose, showToast}) {
+function AdminPanel({adminPassword, onClose, showToast, onSwitchRoom, currentRoomId}) {
   const [tab, setTab]     = useState("rooms");
   const [rooms, setRooms] = useState([]);
   const [events, setEvents] = useState([]);
@@ -198,7 +198,12 @@ function AdminPanel({adminPassword, onClose, showToast}) {
                     </div>
                     <p style={{fontSize:12,color:"#4A5568"}}>{r.user_count} members · {r.event_count} markets · {r.volume} pts volume</p>
                   </div>
-                  <button onClick={()=>deleteRoom(r.id,r.name)} style={{background:"#FF6B6B18",border:"1px solid #FF6B6B44",color:"#FF6B6B",borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer",flexShrink:0}}>Delete</button>
+                  <div style={{display:"flex",gap:6,flexShrink:0}}>
+                    <button onClick={()=>{onSwitchRoom(r);onClose();}} style={{background:currentRoomId===r.id?"#ADFF4F18":"#161929",border:`1px solid ${currentRoomId===r.id?"#ADFF4F44":"#252A3D"}`,color:currentRoomId===r.id?"#ADFF4F":"#94A3B8",borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                      {currentRoomId===r.id?"✓ Here":"Switch →"}
+                    </button>
+                    <button onClick={()=>deleteRoom(r.id,r.name)} style={{background:"#FF6B6B18",border:"1px solid #FF6B6B44",color:"#FF6B6B",borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Delete</button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -403,6 +408,14 @@ export default function App() {
   const handleOnboard = async (name, roomData) => {
     setUsername(name); setRoom(roomData); setSettings(roomData);
     try { await api(`/api/rooms/${roomData.id}/users/register`,{method:"POST",body:{username:name}}); } catch{}
+  };
+
+  const switchRoom = async (newRoom) => {
+    setRoom(newRoom);
+    setSettings(s => ({...s, ...newRoom}));
+    localStorage.setItem("km_room", JSON.stringify(newRoom));
+    setEvents([]); setBalance(null); setLoading(true); setView("markets");
+    try { await api(`/api/rooms/${newRoom.id}/users/register`,{method:"POST",body:{username}}); } catch{}
   };
 
   const handleAdminLogin = async (pwd) => {
@@ -799,7 +812,7 @@ ${url}`);
       })()}
 
       {showAdminLogin&&<LoginModal title="Admin Login 👑" subtitle="Global access across all rooms" accent="#ADFF4F" onLogin={handleAdminLogin} onClose={()=>setShowAdminLogin(false)}/>}
-      {showAdminPanel&&<AdminPanel adminPassword={adminPassword} onClose={()=>setShowAdminPanel(false)} showToast={showToast}/>}
+      {showAdminPanel&&<AdminPanel adminPassword={adminPassword} onClose={()=>setShowAdminPanel(false)} showToast={showToast} onSwitchRoom={switchRoom} currentRoomId={room?.id}/>}
       <Toast toast={toast}/>
     </div>
   );
