@@ -495,18 +495,36 @@ export default function App() {
                                 const optPool = event.bets.filter(b=>b.option===i).reduce((s,b)=>s+b.amount,0);
                                 const myAmt = event.bets.filter(b=>b.user===username&&b.option===i).reduce((s,b)=>s+b.amount,0);
                                 const col = PALETTE[i % PALETTE.length];
+                                // Payout multiplier: if you bet 1pt on this option, how much do you get back?
+                                // multiplier = totalPool / optionPool (or show "∞" if no bets on this option yet)
+                                const multiplier = optPool === 0 ? null : (pool / optPool);
+                                const multLabel = optPool === 0 ? "∞x" : multiplier >= 10 ? `${Math.round(multiplier)}x` : `${multiplier.toFixed(2)}x`;
+                                const isHot = multiplier !== null && multiplier >= 3; // high reward
                                 return (
                                   <div key={i} style={{ background:isWinner?"#ADFF4F0C":"#0D0F1A", border:`1.5px solid ${isWinner?"#ADFF4F44":"#1E2438"}`, borderRadius:12, padding:"11px 12px", opacity:isLoser?0.3:1 }}>
                                     <div style={{ display:"flex", alignItems:"center", gap:10 }}>
                                       <span style={{ fontFamily:"'Space Mono',monospace", fontSize:16, fontWeight:700, color:isWinner?"#ADFF4F":col, minWidth:44, flexShrink:0 }}>{odds[i]}%</span>
                                       <div style={{ flex:1, minWidth:0 }}>
-                                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", gap:8, marginBottom:6 }}>
+                                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginBottom:6 }}>
                                           <span style={{ fontSize:14, fontWeight:700, color:isWinner?"#ADFF4F":"#E2E8F0", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
                                             {isWinner && "✓ "}{opt}
                                           </span>
-                                          <span style={{ fontSize:11, fontFamily:"'Space Mono',monospace", color:"#3A4155", flexShrink:0 }}>
-                                            {optPool}{myAmt>0&&<span style={{ color:"#4FC3F7" }}> ·{myAmt}↑</span>}
-                                          </span>
+                                          <div style={{ display:"flex", alignItems:"center", gap:6, flexShrink:0 }}>
+                                            {!event.resolved && (
+                                              <span style={{
+                                                fontFamily:"'Space Mono',monospace", fontSize:12, fontWeight:700,
+                                                color: isHot ? "#FB923C" : "#5A6478",
+                                                background: isHot ? "#FB923C18" : "transparent",
+                                                border: isHot ? "1px solid #FB923C44" : "none",
+                                                borderRadius:6, padding: isHot ? "2px 7px" : "0",
+                                              }}>
+                                                {multLabel}
+                                              </span>
+                                            )}
+                                            <span style={{ fontSize:11, fontFamily:"'Space Mono',monospace", color:"#3A4155" }}>
+                                              {optPool}{myAmt>0&&<span style={{ color:"#4FC3F7" }}> ·{myAmt}↑</span>}
+                                            </span>
+                                          </div>
                                         </div>
                                         <div style={{ height:4, background:"#1E2438", borderRadius:2, overflow:"hidden" }}>
                                           <div style={{ height:"100%", width:`${odds[i]}%`, background:isWinner?`linear-gradient(90deg,#ADFF4F,#7FD420)`:`linear-gradient(90deg,${col}99,${col}44)`, borderRadius:2, transition:"width .5s ease", boxShadow:`0 0 6px ${col}55` }} />
@@ -514,7 +532,7 @@ export default function App() {
                                       </div>
                                       {canBet && (
                                         <button className="bp"
-                                          onClick={() => { setBetModal({ eventId:event.id, option:i, optionLabel:opt, eventTitle:event.title, color:col }); setBetAmount(""); }}
+                                          onClick={() => { setBetModal({ eventId:event.id, option:i, optionLabel:opt, eventTitle:event.title, color:col, pool, optPool }); setBetAmount(""); }}
                                           style={{ background:`${col}22`, color:col, border:`1.5px solid ${col}55`, borderRadius:8, padding:"8px 14px", fontSize:13, fontWeight:800, cursor:"pointer", flexShrink:0 }}>
                                           Bet
                                         </button>
@@ -630,6 +648,30 @@ export default function App() {
             <input autoFocus type="number" placeholder={`Min ${settings.min_bet}`} value={betAmount}
               onChange={e => setBetAmount(e.target.value)} onKeyDown={e => e.key==="Enter" && placeBet()}
               style={{ width:"100%", background:"#0D0F1A", border:"1.5px solid #252A3D", color:"#fff", borderRadius:12, padding:"13px 16px", fontFamily:"'Space Mono',monospace", fontSize:18, outline:"none", marginBottom:10 }} />
+            {/* Live payout preview */}
+            {betAmount > 0 && (() => {
+              const amt = Number(betAmount);
+              const currentOptPool = betModal.optPool || 0;
+              const currentTotalPool = betModal.pool || 0;
+              // After your bet: new pools
+              const newOptPool = currentOptPool + amt;
+              const newTotalPool = currentTotalPool + amt;
+              const payout = Math.round((amt / newOptPool) * newTotalPool);
+              const profit = payout - amt;
+              const mult = (payout / amt).toFixed(2);
+              return (
+                <div style={{ background:"#0D0F1A", border:`1.5px solid ${betModal.color}44`, borderRadius:12, padding:"12px 14px", marginBottom:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                  <div>
+                    <p style={{ fontSize:11, fontWeight:800, color:"#3A4155", letterSpacing:"0.08em", marginBottom:3 }}>IF YOU WIN</p>
+                    <p style={{ fontFamily:"'Space Mono',monospace", fontSize:20, fontWeight:700, color:"#ADFF4F" }}>+{payout} <span style={{ fontSize:13, color:"#5A6478" }}>{settings.currency}</span></p>
+                  </div>
+                  <div style={{ textAlign:"right" }}>
+                    <p style={{ fontSize:11, fontWeight:800, color:"#3A4155", letterSpacing:"0.08em", marginBottom:3 }}>MULTIPLIER</p>
+                    <p style={{ fontFamily:"'Space Mono',monospace", fontSize:20, fontWeight:700, color: Number(mult) >= 3 ? "#FB923C" : betModal.color }}>{mult}x</p>
+                  </div>
+                </div>
+              );
+            })()}
             <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:6, marginBottom:18 }}>
               {[
                 Number(settings.min_bet),
