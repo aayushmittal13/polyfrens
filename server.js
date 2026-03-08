@@ -13,129 +13,194 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
 });
 
-const STARTING_BALANCE = 100;
+const MASTER_PASSWORD = process.env.MASTER_PASSWORD || "Khel Mandli";
 
 async function initDB() {
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
+    CREATE TABLE IF NOT EXISTS rooms (
+      id        SERIAL PRIMARY KEY,
+      name      TEXT NOT NULL,
+      code      TEXT UNIQUE NOT NULL,
+      code_hash TEXT NOT NULL,
+      admin_hash    TEXT NOT NULL,
+      creator_hash  TEXT NOT NULL,
+      min_bet       INTEGER DEFAULT 1,
+      max_bet       INTEGER DEFAULT 100,
+      currency      TEXT DEFAULT 'pts',
+      starting_balance INTEGER DEFAULT 100,
+      created_at TIMESTAMPTZ DEFAULT NOW()
     );
     CREATE TABLE IF NOT EXISTS users (
-      username TEXT PRIMARY KEY,
-      balance INTEGER NOT NULL DEFAULT 100,
-      created_at TIMESTAMPTZ DEFAULT NOW()
+      id       SERIAL PRIMARY KEY,
+      room_id  INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
+      username TEXT NOT NULL,
+      balance  INTEGER NOT NULL DEFAULT 100,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(room_id, username)
     );
     CREATE TABLE IF NOT EXISTS events (
-      id SERIAL PRIMARY KEY,
-      title TEXT NOT NULL,
+      id          SERIAL PRIMARY KEY,
+      room_id     INTEGER REFERENCES rooms(id) ON DELETE CASCADE,
+      title       TEXT NOT NULL,
       description TEXT,
-      creator TEXT NOT NULL,
-      options JSONB NOT NULL,
-      deadline DATE NOT NULL,
-      resolved BOOLEAN DEFAULT FALSE,
-      winner INTEGER DEFAULT NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW()
+      creator     TEXT NOT NULL,
+      options     JSONB NOT NULL,
+      deadline    DATE NOT NULL,
+      resolved    BOOLEAN DEFAULT FALSE,
+      winner      INTEGER DEFAULT NULL,
+      created_at  TIMESTAMPTZ DEFAULT NOW()
     );
     CREATE TABLE IF NOT EXISTS bets (
-      id SERIAL PRIMARY KEY,
-      event_id INTEGER REFERENCES events(id) ON DELETE CASCADE,
-      username TEXT NOT NULL,
+      id           SERIAL PRIMARY KEY,
+      event_id     INTEGER REFERENCES events(id) ON DELETE CASCADE,
+      username     TEXT NOT NULL,
       option_index INTEGER NOT NULL,
-      amount INTEGER NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW()
+      amount       INTEGER NOT NULL,
+      created_at   TIMESTAMPTZ DEFAULT NOW()
     );
   `);
-
-  await pool.query(`
-    INSERT INTO settings (key, value) VALUES
-      ('password_hash', $1),
-      ('creator_password_hash', $2),
-      ('min_bet', '1'),
-      ('max_bet', '100'),
-      ('currency', 'pts'),
-      ('starting_balance', '100')
-    ON CONFLICT (key) DO NOTHING
-  `, [bcrypt.hashSync("Khel Mandli", 10), bcrypt.hashSync("create123", 10)]);
-
   console.log("✅ Database ready");
 }
 
-// ── Auth ──────────────────────────────────────────────────────────────────────
-app.post("/api/auth/login", async (req, res) => {
-  const { password } = req.body;
-  const result = await pool.query("SELECT value FROM settings WHERE key='password_hash'");
-  const valid = bcrypt.compareSync(password, result.rows[0]?.value);
-  if (valid) res.json({ success: true });
-  else res.status(401).json({ error: "Wrong password" });
+// ── Master admin auth helper ───────────────────────────────────────────────
+const masterHash = bcrypt.hashSync(MASTER_PASSWORD, 10);
+function isMaster(password) { return bcrypt.compareSync(password, masterHash); }
+
+// ── Rooms ──────────────────────────────────────────────────────────────────
+
+// Master: list all rooms
+app.get("/api/master/rooms", async (req, res) => {
+  const { password } = req.query;
+  if (!isMaster(password)) return res.status(401).json({ error: "Unauthorized" });
+  const result = await pool.query("SELECT id, name, code, created_at FROM rooms ORDER BY created_at DESC");
+  res.json(result.rows);
 });
 
-app.post("/api/auth/creator-login", async (req, res) => {
-  const { password } = req.body;
-  const result = await pool.query("SELECT value FROM settings WHERE key='creator_password_hash'");
-  const valid = bcrypt.compareSync(password, result.rows[0]?.value);
-  if (valid) res.json({ success: true });
-  else res.status(401).json({ error: "Wrong password" });
+// Master: create a room
+app.post("/api/master/rooms", async (req, res) => {
+  const { password, name, code, admin_password, creator_password } = req.body;
+  if (!isMaster(password)) return res.status(401).json({ error: "Unauthorized" });
+  if (!name || !code || !admin_password || !creator_password)
+    return res.status(400).json({ error: "name, code, admin_password, creator_password required" });
+
+  const codeUpper = code.trim().toUpperCase();
+  try {
+    const result = await pool.query(
+      `INSERT INTO rooms (name, code, code_hash, admin_hash, creator_hash)
+       VALUES ($1,$2,$3,$4,$5) RETURNING id, name, code`,
+      [name.trim(), codeUpper, bcrypt.hashSync(codeUpper, 10),
+       bcrypt.hashSync(admin_password, 10), bcrypt.hashSync(creator_password, 10)]
+    );
+    res.json(result.rows[0]);
+  } catch (e) {
+    if (e.code === "23505") return res.status(400).json({ error: "Room code already exists" });
+    throw e;
+  }
 });
 
-// ── Users / Balances ──────────────────────────────────────────────────────────
-// Register or get user
-app.post("/api/users/register", async (req, res) => {
+// Master: delete a room
+app.delete("/api/master/rooms/:id", async (req, res) => {
+  const { password } = req.body;
+  if (!isMaster(password)) return res.status(401).json({ error: "Unauthorized" });
+  await pool.query("DELETE FROM rooms WHERE id=$1", [req.params.id]);
+  res.json({ success: true });
+});
+
+// Join a room by code — returns room info (no sensitive data)
+app.post("/api/rooms/join", async (req, res) => {
+  const { code } = req.body;
+  if (!code) return res.status(400).json({ error: "Code required" });
+  const result = await pool.query("SELECT id, name, code, min_bet, max_bet, currency, starting_balance FROM rooms WHERE code=$1", [code.trim().toUpperCase()]);
+  if (!result.rows[0]) return res.status(404).json({ error: "Room not found. Check the code." });
+  res.json(result.rows[0]);
+});
+
+// Room-level auth
+app.post("/api/rooms/:roomId/auth/admin", async (req, res) => {
+  const { password } = req.body;
+  const room = await pool.query("SELECT admin_hash FROM rooms WHERE id=$1", [req.params.roomId]);
+  if (!room.rows[0]) return res.status(404).json({ error: "Room not found" });
+  if (!bcrypt.compareSync(password, room.rows[0].admin_hash)) return res.status(401).json({ error: "Wrong password" });
+  res.json({ success: true });
+});
+
+app.post("/api/rooms/:roomId/auth/creator", async (req, res) => {
+  const { password } = req.body;
+  const room = await pool.query("SELECT creator_hash, admin_hash FROM rooms WHERE id=$1", [req.params.roomId]);
+  if (!room.rows[0]) return res.status(404).json({ error: "Room not found" });
+  const ok = bcrypt.compareSync(password, room.rows[0].creator_hash) ||
+             bcrypt.compareSync(password, room.rows[0].admin_hash);
+  if (!ok) return res.status(401).json({ error: "Wrong password" });
+  res.json({ success: true });
+});
+
+// ── Room settings ─────────────────────────────────────────────────────────
+app.get("/api/rooms/:roomId/settings", async (req, res) => {
+  const result = await pool.query(
+    "SELECT min_bet, max_bet, currency, starting_balance FROM rooms WHERE id=$1",
+    [req.params.roomId]
+  );
+  if (!result.rows[0]) return res.status(404).json({ error: "Room not found" });
+  res.json(result.rows[0]);
+});
+
+app.post("/api/rooms/:roomId/settings", async (req, res) => {
+  const { password, min_bet, max_bet, currency, starting_balance, new_admin_password, new_creator_password } = req.body;
+  const room = await pool.query("SELECT admin_hash FROM rooms WHERE id=$1", [req.params.roomId]);
+  if (!room.rows[0] || !bcrypt.compareSync(password, room.rows[0].admin_hash))
+    return res.status(401).json({ error: "Unauthorized" });
+
+  const updates = [];
+  const vals = [];
+  let i = 1;
+  for (const [col, val] of Object.entries({ min_bet, max_bet, currency, starting_balance })) {
+    if (val !== undefined) { updates.push(`${col}=$${i++}`); vals.push(val); }
+  }
+  if (new_admin_password)   { updates.push(`admin_hash=$${i++}`);   vals.push(bcrypt.hashSync(new_admin_password, 10)); }
+  if (new_creator_password) { updates.push(`creator_hash=$${i++}`); vals.push(bcrypt.hashSync(new_creator_password, 10)); }
+  if (updates.length) {
+    vals.push(req.params.roomId);
+    await pool.query(`UPDATE rooms SET ${updates.join(",")} WHERE id=$${i}`, vals);
+  }
+  res.json({ success: true });
+});
+
+// ── Users ─────────────────────────────────────────────────────────────────
+app.post("/api/rooms/:roomId/users/register", async (req, res) => {
   const { username } = req.body;
+  const { roomId } = req.params;
   if (!username || username.trim().length < 2) return res.status(400).json({ error: "Invalid name" });
 
-  const startRow = await pool.query("SELECT value FROM settings WHERE key='starting_balance'");
-  const startBal = parseInt(startRow.rows[0]?.value || STARTING_BALANCE);
+  const room = await pool.query("SELECT starting_balance FROM rooms WHERE id=$1", [roomId]);
+  if (!room.rows[0]) return res.status(404).json({ error: "Room not found" });
+  const startBal = room.rows[0].starting_balance;
 
   const result = await pool.query(
-    "INSERT INTO users (username, balance) VALUES ($1, $2) ON CONFLICT (username) DO UPDATE SET username=EXCLUDED.username RETURNING *",
-    [username.trim(), startBal]
+    "INSERT INTO users (room_id, username, balance) VALUES ($1,$2,$3) ON CONFLICT (room_id, username) DO UPDATE SET username=EXCLUDED.username RETURNING *",
+    [roomId, username.trim(), startBal]
   );
   res.json(result.rows[0]);
 });
 
-app.get("/api/users/:username/balance", async (req, res) => {
-  const { username } = req.params;
-  const startRow = await pool.query("SELECT value FROM settings WHERE key='starting_balance'");
-  const startBal = parseInt(startRow.rows[0]?.value || STARTING_BALANCE);
-
-  // upsert in case they haven't registered yet
+app.get("/api/rooms/:roomId/users/:username/balance", async (req, res) => {
+  const { roomId, username } = req.params;
+  const room = await pool.query("SELECT starting_balance FROM rooms WHERE id=$1", [roomId]);
+  if (!room.rows[0]) return res.status(404).json({ error: "Room not found" });
   const result = await pool.query(
-    "INSERT INTO users (username, balance) VALUES ($1, $2) ON CONFLICT (username) DO UPDATE SET username=EXCLUDED.username RETURNING *",
-    [username, startBal]
+    "INSERT INTO users (room_id, username, balance) VALUES ($1,$2,$3) ON CONFLICT (room_id, username) DO UPDATE SET username=EXCLUDED.username RETURNING *",
+    [roomId, username, room.rows[0].starting_balance]
   );
   res.json({ balance: result.rows[0].balance });
 });
 
-// ── Settings ──────────────────────────────────────────────────────────────────
-app.get("/api/settings", async (req, res) => {
-  const result = await pool.query("SELECT key, value FROM settings WHERE key NOT LIKE '%password%'");
-  const settings = {};
-  result.rows.forEach(r => settings[r.key] = r.value);
-  res.json(settings);
-});
-
-app.post("/api/settings", async (req, res) => {
-  const { password, min_bet, max_bet, currency, starting_balance, new_password, new_creator_password } = req.body;
-  const hashRow = await pool.query("SELECT value FROM settings WHERE key='password_hash'");
-  if (!bcrypt.compareSync(password, hashRow.rows[0]?.value)) return res.status(401).json({ error: "Unauthorized" });
-
-  for (const [key, value] of Object.entries({ min_bet, max_bet, currency, starting_balance })) {
-    if (value !== undefined)
-      await pool.query("INSERT INTO settings (key,value) VALUES ($1,$2) ON CONFLICT (key) DO UPDATE SET value=$2", [key, String(value)]);
-  }
-  if (new_password)
-    await pool.query("UPDATE settings SET value=$1 WHERE key='password_hash'", [bcrypt.hashSync(new_password, 10)]);
-  if (new_creator_password)
-    await pool.query("INSERT INTO settings (key,value) VALUES ('creator_password_hash',$1) ON CONFLICT (key) DO UPDATE SET value=$1", [bcrypt.hashSync(new_creator_password, 10)]);
-
-  res.json({ success: true });
-});
-
-// ── Events ────────────────────────────────────────────────────────────────────
-app.get("/api/events", async (req, res) => {
-  const eventsResult = await pool.query("SELECT * FROM events ORDER BY created_at DESC");
-  const betsResult = await pool.query("SELECT * FROM bets ORDER BY created_at ASC");
+// ── Events ────────────────────────────────────────────────────────────────
+app.get("/api/rooms/:roomId/events", async (req, res) => {
+  const { roomId } = req.params;
+  const eventsResult = await pool.query("SELECT * FROM events WHERE room_id=$1 ORDER BY created_at DESC", [roomId]);
+  const ids = eventsResult.rows.map(e => e.id);
+  const betsResult = ids.length
+    ? await pool.query("SELECT * FROM bets WHERE event_id = ANY($1) ORDER BY created_at ASC", [ids])
+    : { rows: [] };
   const events = eventsResult.rows.map(e => ({
     ...e,
     bets: betsResult.rows.filter(b => b.event_id === e.id).map(b => ({
@@ -145,104 +210,98 @@ app.get("/api/events", async (req, res) => {
   res.json(events);
 });
 
-app.post("/api/events", async (req, res) => {
+app.post("/api/rooms/:roomId/events", async (req, res) => {
   const { title, description, creator, options, deadline, password } = req.body;
-  const [adminRow, creatorRow] = await Promise.all([
-    pool.query("SELECT value FROM settings WHERE key='password_hash'"),
-    pool.query("SELECT value FROM settings WHERE key='creator_password_hash'"),
-  ]);
-  const isAdmin = bcrypt.compareSync(password, adminRow.rows[0]?.value);
-  const isCreator = bcrypt.compareSync(password, creatorRow.rows[0]?.value);
+  const { roomId } = req.params;
+
+  const room = await pool.query("SELECT admin_hash, creator_hash FROM rooms WHERE id=$1", [roomId]);
+  if (!room.rows[0]) return res.status(404).json({ error: "Room not found" });
+  const isAdmin   = bcrypt.compareSync(password, room.rows[0].admin_hash);
+  const isCreator = bcrypt.compareSync(password, room.rows[0].creator_hash);
   if (!isAdmin && !isCreator) return res.status(401).json({ error: "Unauthorized" });
 
   const result = await pool.query(
-    "INSERT INTO events (title, description, creator, options, deadline) VALUES ($1,$2,$3,$4,$5) RETURNING *",
-    [title, description || "", creator, JSON.stringify(options), deadline]
+    "INSERT INTO events (room_id, title, description, creator, options, deadline) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *",
+    [roomId, title, description || "", creator, JSON.stringify(options), deadline]
   );
   res.json({ ...result.rows[0], bets: [] });
 });
 
-app.post("/api/events/:id/resolve", async (req, res) => {
+app.post("/api/rooms/:roomId/events/:id/resolve", async (req, res) => {
   const { winner, password } = req.body;
-  const { id } = req.params;
-  const hashRow = await pool.query("SELECT value FROM settings WHERE key='password_hash'");
-  if (!bcrypt.compareSync(password, hashRow.rows[0]?.value)) return res.status(401).json({ error: "Unauthorized" });
+  const { roomId, id } = req.params;
 
-  // Get all bets for this event
+  const room = await pool.query("SELECT admin_hash FROM rooms WHERE id=$1", [roomId]);
+  if (!room.rows[0] || !bcrypt.compareSync(password, room.rows[0].admin_hash))
+    return res.status(401).json({ error: "Unauthorized" });
+
   const betsResult = await pool.query("SELECT * FROM bets WHERE event_id=$1", [id]);
   const bets = betsResult.rows;
   const totalPool = bets.reduce((s, b) => s + b.amount, 0);
-  const winBets = bets.filter(b => b.option_index === winner);
-  const winPool = winBets.reduce((s, b) => s + b.amount, 0);
+  const winBets   = bets.filter(b => b.option_index === winner);
+  const winPool   = winBets.reduce((s, b) => s + b.amount, 0);
 
-  // Pay out winners
   if (winPool > 0) {
     for (const b of winBets) {
       const payout = Math.round((b.amount / winPool) * totalPool);
-      await pool.query("UPDATE users SET balance = balance + $1 WHERE username = $2", [payout, b.username]);
+      await pool.query("UPDATE users SET balance=balance+$1 WHERE room_id=$2 AND username=$3", [payout, roomId, b.username]);
     }
   }
-
   await pool.query("UPDATE events SET resolved=TRUE, winner=$1 WHERE id=$2", [winner, id]);
   res.json({ success: true });
 });
 
-// ── Bets ──────────────────────────────────────────────────────────────────────
-app.post("/api/events/:id/bets", async (req, res) => {
+// ── Bets ──────────────────────────────────────────────────────────────────
+app.post("/api/rooms/:roomId/events/:id/bets", async (req, res) => {
   const { username, option_index, amount } = req.body;
-  const { id } = req.params;
+  const { roomId, id } = req.params;
 
-  const [minRow, maxRow, startRow] = await Promise.all([
-    pool.query("SELECT value FROM settings WHERE key='min_bet'"),
-    pool.query("SELECT value FROM settings WHERE key='max_bet'"),
-    pool.query("SELECT value FROM settings WHERE key='starting_balance'"),
-  ]);
-  const min = parseInt(minRow.rows[0]?.value || 1);
-  const max = parseInt(maxRow.rows[0]?.value || 100);
-  const startBal = parseInt(startRow.rows[0]?.value || STARTING_BALANCE);
+  const room = await pool.query("SELECT min_bet, max_bet, starting_balance FROM rooms WHERE id=$1", [roomId]);
+  if (!room.rows[0]) return res.status(404).json({ error: "Room not found" });
+  const { min_bet, max_bet, starting_balance } = room.rows[0];
 
-  if (amount < min || amount > max) return res.status(400).json({ error: `Bet must be ${min}–${max}` });
+  if (amount < min_bet || amount > max_bet)
+    return res.status(400).json({ error: `Bet must be ${min_bet}–${max_bet}` });
 
-  // Get or create user
   const userResult = await pool.query(
-    "INSERT INTO users (username, balance) VALUES ($1, $2) ON CONFLICT (username) DO UPDATE SET username=EXCLUDED.username RETURNING *",
-    [username.trim(), startBal]
+    "INSERT INTO users (room_id, username, balance) VALUES ($1,$2,$3) ON CONFLICT (room_id, username) DO UPDATE SET username=EXCLUDED.username RETURNING *",
+    [roomId, username.trim(), starting_balance]
   );
   const user = userResult.rows[0];
   if (user.balance < amount) return res.status(400).json({ error: `Not enough pts (you have ${user.balance})` });
 
-  const eventRow = await pool.query("SELECT * FROM events WHERE id=$1", [id]);
+  const eventRow = await pool.query("SELECT * FROM events WHERE id=$1 AND room_id=$2", [id, roomId]);
   const event = eventRow.rows[0];
   if (!event) return res.status(404).json({ error: "Event not found" });
   if (event.resolved) return res.status(400).json({ error: "Already resolved" });
   if (new Date(event.deadline) < new Date()) return res.status(400).json({ error: "Deadline passed" });
 
-  // Deduct balance
-  await pool.query("UPDATE users SET balance = balance - $1 WHERE username = $2", [amount, username.trim()]);
-
+  await pool.query("UPDATE users SET balance=balance-$1 WHERE room_id=$2 AND username=$3", [amount, roomId, username.trim()]);
   const result = await pool.query(
     "INSERT INTO bets (event_id, username, option_index, amount) VALUES ($1,$2,$3,$4) RETURNING *",
     [id, username.trim(), option_index, amount]
   );
-  const newBalance = user.balance - amount;
   res.json({
     bet: { id: result.rows[0].id, user: result.rows[0].username, option: result.rows[0].option_index, amount: result.rows[0].amount, time: result.rows[0].created_at },
-    newBalance,
+    newBalance: user.balance - amount,
   });
 });
 
-// ── Wipe all data (admin only) ────────────────────────────────────────────────
-app.post("/api/admin/wipe", async (req, res) => {
+// ── Wipe room data ────────────────────────────────────────────────────────
+app.post("/api/rooms/:roomId/wipe", async (req, res) => {
   const { password } = req.body;
-  const hashRow = await pool.query("SELECT value FROM settings WHERE key='password_hash'");
-  if (!bcrypt.compareSync(password, hashRow.rows[0]?.value)) return res.status(401).json({ error: "Unauthorized" });
-  await pool.query("DELETE FROM bets");
-  await pool.query("DELETE FROM events");
-  await pool.query("DELETE FROM users");
+  const { roomId } = req.params;
+  const room = await pool.query("SELECT admin_hash FROM rooms WHERE id=$1", [roomId]);
+  if (!room.rows[0] || !bcrypt.compareSync(password, room.rows[0].admin_hash))
+    return res.status(401).json({ error: "Unauthorized" });
+  const evts = await pool.query("SELECT id FROM events WHERE room_id=$1", [roomId]);
+  if (evts.rows.length) await pool.query("DELETE FROM bets WHERE event_id=ANY($1)", [evts.rows.map(e=>e.id)]);
+  await pool.query("DELETE FROM events WHERE room_id=$1", [roomId]);
+  await pool.query("DELETE FROM users WHERE room_id=$1", [roomId]);
   res.json({ success: true });
 });
 
 app.get("*", (req, res) => res.sendFile(path.join(__dirname, "client/dist/index.html")));
 
 const PORT = process.env.PORT || 3001;
-initDB().then(() => app.listen(PORT, () => console.log(`🎲 Khel Mandli on port ${PORT}`))).catch(err => { console.error(err); process.exit(1); });
+initDB().then(() => app.listen(PORT, () => console.log(`🎲 Polyfrens on port ${PORT}`))).catch(err => { console.error(err); process.exit(1); });
