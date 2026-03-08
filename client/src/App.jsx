@@ -544,16 +544,34 @@ export default function App() {
               {isAnon && <div style={{ position:"absolute", inset:-2, borderRadius:50, border:`1.5px solid ${T.accent}44`, pointerEvents:"none", zIndex:1 }} />}
               {balance !== null && <BalancePill balance={balance} currency={settings.currency} />}
             </div>
-            {/* Anon toggle */}
-            <button onClick={toggleAnon} title={isAnon ? `Posting as ${anonAlias}` : "Go anonymous"} style={{
-              display:"flex", alignItems:"center", gap:5, background:isAnon?T.accentBg:"transparent",
-              border:`1px solid ${isAnon?T.accentBd:T.border2}`, borderRadius:8,
-              padding:"5px 10px", cursor:"pointer", transition:"all .15s", flexShrink:0,
+            {/* Anon toggle pill */}
+            <button onClick={toggleAnon} style={{
+              display:"flex", alignItems:"center", gap:8,
+              background:isAnon?T.accentBg:T.surface,
+              border:`1.5px solid ${isAnon?T.accentBd:T.border2}`,
+              borderRadius:50, padding:"6px 12px 6px 8px",
+              cursor:"pointer", transition:"all .25s ease", flexShrink:0,
             }}>
-              <span style={{ fontSize:15, lineHeight:1 }}>{isAnon ? anonAlias.split(" ")[0] : "👤"}</span>
-              <span style={{ fontSize:11, fontWeight:800, color:isAnon?T.accent:"#3A4155", display:"none" }} className="anon-label">
-                {isAnon?"ANON":""}
-              </span>
+              {/* Slider track */}
+              <div style={{
+                width:34, height:19, borderRadius:10,
+                background:isAnon?T.accent:T.border2,
+                position:"relative", transition:"background .25s ease", flexShrink:0,
+              }}>
+                <div style={{
+                  position:"absolute", top:3,
+                  left:isAnon?16:3, width:13, height:13,
+                  borderRadius:"50%", background:"#fff",
+                  transition:"left .2s ease",
+                  boxShadow:"0 1px 4px rgba(0,0,0,0.5)",
+                }} />
+              </div>
+              <span style={{
+                fontSize:12, fontWeight:600,
+                color:isAnon?T.accent:"#6B7280",
+                transition:"color .25s ease",
+                userSelect:"none",
+              }}>Anon mode</span>
             </button>
             {role ? (
               <div style={{ display:"flex", gap:6, alignItems:"center" }}>
