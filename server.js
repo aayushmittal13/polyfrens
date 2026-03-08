@@ -20,16 +20,20 @@ const isMaster = (pwd) => bcrypt.compareSync(pwd, masterHash);
 // ── DB Init + Migration ───────────────────────────────────────────────────────
 async function initDB() {
 
-  // 1. Create rooms table
+  // 1. Create/migrate rooms table — drop old columns that no longer apply
   await pool.query(`
     CREATE TABLE IF NOT EXISTS rooms (
-      id               SERIAL PRIMARY KEY,
-      name             TEXT NOT NULL,
-      code             TEXT UNIQUE NOT NULL,
-      code_hash        TEXT NOT NULL,
-      created_at       TIMESTAMPTZ DEFAULT NOW()
+      id         SERIAL PRIMARY KEY,
+      name       TEXT NOT NULL,
+      code       TEXT UNIQUE NOT NULL,
+      code_hash  TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
     );
   `);
+  // Drop old auth columns from rooms if they exist (new model has no per-room passwords)
+  for (const col of ["admin_hash","creator_hash","min_bet","max_bet","currency","starting_balance"]) {
+    await pool.query(`ALTER TABLE rooms DROP COLUMN IF EXISTS ${col}`).catch(()=>{});
+  }
 
   // 2. Ensure default "Khel Mandli" room exists, carrying over old settings
   const roomCheck = await pool.query("SELECT id FROM rooms WHERE code='KHEL' LIMIT 1");
