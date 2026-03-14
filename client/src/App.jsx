@@ -355,6 +355,7 @@ export default function App() {
   const [resolveModal, setResolveModal] = useState(null);
   const [sharedMarketOpen, setSharedMarketOpen] = useState(null);
   const [shareModal, setShareModal] = useState(null);
+  const [expandedCards, setExpandedCards] = useState({});
   const [isAnon, setIsAnon] = useState(()=>localStorage.getItem("km_anon")==="1");
   const anonAlias = getAnonAlias();
   const displayName = isAnon ? anonAlias : username;
@@ -597,7 +598,7 @@ export default function App() {
                             </div>
                             <p style={{fontSize:14,fontWeight:600,lineHeight:1.5,color:"#E8EDF5",display:"-webkit-box",WebkitLineClamp:3,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{event.title}</p>
                             <div style={{display:"flex",flexDirection:"column",gap:5,flex:1}}>
-                              {event.options.slice(0,3).map((opt,i)=>{
+                              {(expandedCards[event.id] ? event.options : event.options.slice(0,3)).map((opt,i)=>{
                                 const isWinner=event.resolved&&event.winner===i;
                                 const isLoser=event.resolved&&event.winner!==null&&event.winner!==i;
                                 const optPool=event.bets.filter(b=>b.option===i).reduce((s,b)=>s+b.amount,0);
@@ -625,7 +626,20 @@ export default function App() {
                                   </div>
                                 );
                               })}
-                              {event.options.length>3&&<p style={{fontSize:11,color:"#4A5568",fontWeight:500,paddingLeft:4}}>+{event.options.length-3} more options</p>}
+                              {event.options.length>3&&!expandedCards[event.id]&&(
+                                <button onClick={()=>setExpandedCards(p=>({...p,[event.id]:true}))}
+                                  style={{background:"transparent",border:`1px dashed ${T.border}`,color:"#5A6478",borderRadius:8,padding:"6px 0",fontSize:12,fontWeight:600,cursor:"pointer",width:"100%",transition:"all .15s"}}
+                                  onMouseOver={e=>{e.currentTarget.style.borderColor="#5A6478";e.currentTarget.style.color="#94A3B8";}}
+                                  onMouseOut={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color="#5A6478";}}>
+                                  +{event.options.length-3} more options ↓
+                                </button>
+                              )}
+                              {expandedCards[event.id]&&event.options.length>3&&(
+                                <button onClick={()=>setExpandedCards(p=>({...p,[event.id]:false}))}
+                                  style={{background:"transparent",border:"none",color:"#3A4155",fontSize:11,fontWeight:600,cursor:"pointer",padding:"2px 0",textAlign:"left"}}>
+                                  ↑ Show less
+                                </button>
+                              )}
                             </div>
                             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",paddingTop:6,borderTop:`1px solid ${T.border}`}}>
                               <div style={{display:"flex",alignItems:"center",gap:8}}>
