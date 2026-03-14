@@ -472,8 +472,8 @@ export default function App() {
 
   if(!username||!room) return <OnboardingGate onDone={handleOnboard} prefillCode={sharedRoomCode}/>;
 
-  const NAV = ["markets","leaderboard","create",...(isAdmin?["settings"]:[])] ;
-  const ICONS = {markets:"🏪",leaderboard:"🏆",create:"✏️",settings:"⚙️"};
+  const NAV = ["markets","leaderboard","create","profile",...(isAdmin?["settings"]:[])] ;
+  const ICONS = {markets:"🏪",leaderboard:"🏆",create:"✏️",profile:"👤",settings:"⚙️"};
 
   return (
     <div style={{minHeight:"100vh",background:T.bg,color:"#fff",paddingBottom:80,transition:"background .4s ease"}}>
@@ -665,6 +665,146 @@ export default function App() {
                 )}
               </div>
             )}
+
+            {view==="profile"&&(()=>{
+              // Gather all bets by this user (real name + anon alias)
+              const myNames = [username, anonAlias];
+              const openPositions = [];
+              const closedPositions = [];
+
+              events.forEach(event => {
+                const myBets = event.bets.filter(b => myNames.includes(b.user));
+                if (!myBets.length) return;
+
+                const totalPool = getPool(event.bets);
+                const byOption = {};
+                myBets.forEach(b => {
+                  if (!byOption[b.option]) byOption[b.option] = { amount: 0, option: b.option };
+                  byOption[b.option].amount += b.amount;
+                });
+
+                Object.values(byOption).forEach(pos => {
+                  const optPool = event.bets.filter(b => b.option === pos.option).reduce((s,b) => s+b.amount, 0);
+                  const potentialPayout = optPool > 0 ? Math.round((pos.amount / optPool) * totalPool) : pos.amount;
+                  const mult = optPool > 0 ? (totalPool / optPool) : null;
+                  const odds = getOdds(event.bets, event.options.length);
+
+                  const entry = { event, option: pos.option, optionLabel: event.options[pos.option], amount: pos.amount, potentialPayout, mult, odds, optPool, totalPool };
+
+                  if (event.resolved) {
+                    const won = event.winner === pos.option;
+                    const actualPayout = won ? potentialPayout : 0;
+                    closedPositions.push({ ...entry, won, actualPayout, pnl: actualPayout - pos.amount });
+                  } else {
+                    openPositions.push(entry);
+                  }
+                });
+              });
+
+              const totalWagered = [...openPositions, ...closedPositions].reduce((s,p) => s+p.amount, 0);
+              const totalWon = closedPositions.filter(p=>p.won).reduce((s,p) => s+p.actualPayout, 0);
+              const totalLost = closedPositions.filter(p=>!p.won).reduce((s,p) => s+p.amount, 0);
+              const realizedPnl = totalWon - closedPositions.reduce((s,p) => s+p.amount, 0);
+              const exposureAtRisk = openPositions.reduce((s,p) => s+p.amount, 0);
+              const potentialUpside = openPositions.reduce((s,p) => s+p.potentialPayout, 0);
+
+              const accent = T.accent;
+              return (
+                <div>
+                  <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:24}}>
+                    <div style={{width:52,height:52,borderRadius:"50%",background:`linear-gradient(135deg,${T.accent},#4FC3F7)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,fontWeight:800,color:"#0D0F1A",flexShrink:0}}>
+                      {username.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <h2 style={{fontSize:22,fontWeight:800,color:"#fff",marginBottom:2}}>{username}</h2>
+                      <p style={{fontSize:13,color:"#5A6478"}}>{room.name} · {settings.currency}</p>
+                    </div>
+                  </div>
+
+                  {/* Stats strip */}
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:8,marginBottom:24}}>
+                    {[
+                      ["Balance",`${balance ?? "—"} ${settings.currency}`, balance>50?"#ADFF4F":balance>20?"#FBBF24":"#FF6B6B"],
+                      ["Realized P&L", `${realizedPnl>=0?"+":""}${realizedPnl} ${settings.currency}`, realizedPnl>=0?"#ADFF4F":"#FF6B6B"],
+                      ["At Risk", `${exposureAtRisk} ${settings.currency}`, "#FB923C"],
+                      ["Potential Win", `+${potentialUpside} ${settings.currency}`, "#4FC3F7"],
+                    ].map(([label,val,color])=>(
+                      <div key={label} style={{background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:12,padding:"12px 14px"}}>
+                        <p style={{fontSize:11,fontWeight:600,color:"#5A6478",marginBottom:4,letterSpacing:"0.03em"}}>{label.toUpperCase()}</p>
+                        <p style={{fontFamily:"'JetBrains Mono',monospace",fontSize:16,fontWeight:700,color}}>{val}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Open positions */}
+                  <h3 style={{fontSize:16,fontWeight:700,color:"#fff",marginBottom:12}}>
+                    🟢 Open Positions <span style={{fontSize:13,fontWeight:500,color:"#5A6478"}}>({openPositions.length})</span>
+                  </h3>
+                  {openPositions.length===0?(
+                    <div style={{background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:12,padding:"20px",textAlign:"center",marginBottom:24}}>
+                      <p style={{color:"#3A4155",fontSize:14}}>No open bets yet</p>
+                    </div>
+                  ):(
+                    <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:24}}>
+                      {openPositions.map((pos,i)=>{
+                        const col = PALETTE[pos.option % PALETTE.length];
+                        const isExpiring = new Date(pos.event.deadline) - new Date() < 86400000*2;
+                        return(
+                          <div key={i} style={{background:T.surface,border:`1.5px solid ${col}33`,borderRadius:14,padding:"14px 16px",cursor:"pointer"}} onClick={()=>{setView("markets");setFilter("live");}}>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:8}}>
+                              <p style={{fontSize:14,fontWeight:600,color:"#E8EDF5",lineHeight:1.4,flex:1}}>{pos.event.title}</p>
+                              {isExpiring&&<span style={{fontSize:10,color:"#FB923C",background:"#FB923C18",border:"1px solid #FB923C33",borderRadius:5,padding:"2px 7px",fontWeight:700,flexShrink:0,whiteSpace:"nowrap"}}>⚠ Closing soon</span>}
+                            </div>
+                            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                              <span style={{fontSize:13,fontWeight:700,color:col,background:`${col}18`,border:`1px solid ${col}33`,borderRadius:6,padding:"3px 10px"}}>→ {pos.optionLabel}</span>
+                              <span style={{fontSize:12,color:"#5A6478"}}>{pos.odds[pos.option]}% chance</span>
+                              <span style={{fontSize:11,color:"#4A5568"}}>· {deadlineLabel(pos.event.deadline)}</span>
+                            </div>
+                            <div style={{display:"flex",gap:16}}>
+                              <div><p style={{fontSize:10,color:"#4A5568",fontWeight:600,marginBottom:2}}>WAGERED</p><p style={{fontFamily:"'JetBrains Mono',monospace",fontSize:15,fontWeight:700,color:"#fff"}}>{pos.amount}</p></div>
+                              <div><p style={{fontSize:10,color:"#4A5568",fontWeight:600,marginBottom:2}}>IF WIN</p><p style={{fontFamily:"'JetBrains Mono',monospace",fontSize:15,fontWeight:700,color:"#ADFF4F"}}>+{pos.potentialPayout}</p></div>
+                              <div><p style={{fontSize:10,color:"#4A5568",fontWeight:600,marginBottom:2}}>MULTIPLIER</p><p style={{fontFamily:"'JetBrains Mono',monospace",fontSize:15,fontWeight:700,color:pos.mult>=3?"#FB923C":col}}>{pos.mult?`${pos.mult.toFixed(1)}x`:"∞x"}</p></div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Closed positions */}
+                  <h3 style={{fontSize:16,fontWeight:700,color:"#fff",marginBottom:12}}>
+                    🏁 Settled <span style={{fontSize:13,fontWeight:500,color:"#5A6478"}}>({closedPositions.length})</span>
+                  </h3>
+                  {closedPositions.length===0?(
+                    <div style={{background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:12,padding:"20px",textAlign:"center"}}>
+                      <p style={{color:"#3A4155",fontSize:14}}>No settled bets yet</p>
+                    </div>
+                  ):(
+                    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                      {closedPositions.map((pos,i)=>{
+                        const col = pos.won ? "#ADFF4F" : "#FF6B6B";
+                        return(
+                          <div key={i} style={{background:T.surface,border:`1.5px solid ${col}22`,borderRadius:14,padding:"14px 16px",opacity:0.85}}>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:6}}>
+                              <p style={{fontSize:13,fontWeight:600,color:"#C8D3E0",flex:1,lineHeight:1.4}}>{pos.event.title}</p>
+                              <span style={{fontSize:11,fontWeight:700,color:col,background:`${col}18`,border:`1px solid ${col}33`,borderRadius:5,padding:"2px 8px",flexShrink:0}}>{pos.won?"✓ WON":"✗ LOST"}</span>
+                            </div>
+                            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                              <span style={{fontSize:12,color:col,fontWeight:600}}>→ {pos.optionLabel}</span>
+                            </div>
+                            <div style={{display:"flex",gap:16}}>
+                              <div><p style={{fontSize:10,color:"#4A5568",fontWeight:600,marginBottom:2}}>WAGERED</p><p style={{fontFamily:"'JetBrains Mono',monospace",fontSize:14,fontWeight:700,color:"#fff"}}>{pos.amount}</p></div>
+                              <div><p style={{fontSize:10,color:"#4A5568",fontWeight:600,marginBottom:2}}>{pos.won?"RECEIVED":"LOST"}</p><p style={{fontFamily:"'JetBrains Mono',monospace",fontSize:14,fontWeight:700,color:col}}>{pos.won?`+${pos.actualPayout}`:`-${pos.amount}`}</p></div>
+                              <div><p style={{fontSize:10,color:"#4A5568",fontWeight:600,marginBottom:2}}>P&L</p><p style={{fontFamily:"'JetBrains Mono',monospace",fontSize:14,fontWeight:700,color:col}}>{pos.pnl>=0?"+":""}{pos.pnl}</p></div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {view==="leaderboard"&&(
               <div>
