@@ -634,12 +634,12 @@ export default function App() {
                             {/* Header row */}
                             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6}}>
                               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                                <span style={{fontSize:11,fontWeight:500,color:event.resolved?"#404040":expired?"#404040":"#22c55e",background:event.resolved?"#111":expired?"#111":"#0a1a0a",border:`1px solid ${event.resolved?"#1a1a1a":expired?"#1a1a1a":"#14532d"}`,borderRadius:4,padding:"2px 7px"}}>
+                                <span style={{fontSize:11,fontWeight:500,color:event.resolved?"#888":expired?"#666":"#4ade80",background:event.resolved?"#161616":expired?"#161616":"#0a1a0a",border:`1px solid ${event.resolved?"#2a2a2a":expired?"#222":"#166534"}`,borderRadius:4,padding:"2px 7px"}}>
                                   {event.resolved?"Settled":expired?"Closed":`${deadlineLabel(event.deadline)} left`}
                                 </span>
                               </div>
                               <div style={{display:"flex",alignItems:"center",gap:6}}>
-                                <span style={{fontSize:11,color:"#333"}}>by {event.creator}</span>
+                                <span style={{fontSize:11,color:"#555"}}>by {event.creator}</span>
                                 <button onClick={()=>setShareModal({event})}
                                   style={{background:"transparent",border:"none",color:"#2a2a2a",cursor:"pointer",padding:"2px",fontSize:13,lineHeight:1,transition:"color .1s"}}
                                   onMouseOver={e=>e.target.style.color="#555"} onMouseOut={e=>e.target.style.color="#2a2a2a"}>
@@ -669,7 +669,7 @@ export default function App() {
                                     </div>
                                     <div style={{flex:1,minWidth:0}}>
                                       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:4}}>
-                                        <span style={{fontSize:13,fontWeight:500,color:isWinner?"#86efac":"#a3a3a3",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                                        <span style={{fontSize:13,fontWeight:500,color:isWinner?"#86efac":"#e5e5e5",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                                           {opt}
                                         </span>
                                         <div style={{display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
@@ -709,7 +709,7 @@ export default function App() {
 
                             {/* Footer */}
                             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",paddingTop:8,borderTop:"1px solid #141414"}}>
-                              <span style={{fontFamily:"'DM Mono',monospace",fontSize:11,color:"#333"}}>
+                              <span style={{fontFamily:"'DM Mono',monospace",fontSize:11,color:"#555"}}>
                                 {pool} {settings.currency} · {event.bets.length} bets
                               </span>
                               {canResolve(event)&&!event.resolved&&(
